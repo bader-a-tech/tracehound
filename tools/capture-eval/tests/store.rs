@@ -1,12 +1,15 @@
 use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tracehound_eval::runtime::{CaptureReport, JobReport};
 use tracehound_eval::store::{compare, load_report, write_new, ReportDocument, ReportStore};
 use tracehound_eval::suite::SuiteReport;
 use tracehound_eval::{
     analyze, evaluate, Alert, CaptureCase, EvaluationReport, Expectation, Severity,
 };
+
+static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
 struct Directory {
     path: PathBuf,
@@ -16,12 +19,13 @@ impl Directory {
     fn new() -> Self {
         let parent = fs::canonicalize(std::env::temp_dir()).unwrap();
         let path = parent.join(format!(
-            "tracehound store {} {}",
+            "tracehound store {} {} {}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&path).unwrap();
         Self { path, parent }
