@@ -92,15 +92,56 @@ The [published JSON summary](benchmarks/corpus-v0.6.0.json) records the Windows
 candidate's source revision, executable/manifest hashes, case counts, measurements,
 and source-backed exposure assumptions without packet bytes or local capture paths.
 
-The extended P2P case deliberately retains an important negative result. It
-produced 18 unexpected unique `TH-0001` findings, 36 alert records, from the
-publisher-verified normal host. With the publisher's rounded 1,282-second monitored
-window, that is 101.09 alert records and 50.55 unique findings per monitored host-hour.
-The extended labelled evaluation therefore has 6 passing cases and 1 failing case;
-its 4 positive expectations still match. Labels and thresholds were not changed to
-make this trace pass. Periodic peer-to-peer activity can trigger the heuristic,
-so a pattern finding requires surrounding host/application context rather than
-proving malicious command-and-control activity.
+The extended P2P case deliberately retains an important negative result. The
+0.6.0 baseline produced 18 unexpected unique `TH-0001` findings and 36 alert
+records from the publisher-verified normal host. The 0.6.1 Rust backend uses
+sessions with observed outbound application payload for beacon timing, while
+reporting control-only attempts separately. It produces **6 unique findings and
+11 alert records** on the same bytes and unchanged labels, thresholds, home
+networks, and exposure assumptions.
+
+| Normal P2P measurement | 0.6.0 baseline | 0.6.1 session evidence |
+| --- | ---: | ---: |
+| Unexpected unique `TH-0001` findings | 18 | 6 |
+| Alert records | 36 | 11 |
+| Unique findings per monitored host-hour | 50.55 | 16.85 |
+| Alert records per monitored host-hour | 101.09 | 30.89 |
+| Reviewed positive behaviours matched, extended corpus | 4/4 | 4/4 |
+
+This is a 66.7% reduction in unique P2P findings and a 69.4% reduction in alert
+records on this capture. Both controlled timing cases, the SYN sweep, and dnscat2
+still match their reviewed expectations. The default corpus retains 6 passing
+labelled cases and no unexpected findings. The extended corpus retains **6
+passing cases and 1 failing case**, because the six residual P2P findings are
+still explicitly benign under the publisher's labels. The
+[0.6.1 summary](benchmarks/corpus-beacon-sessions.json) records the tested source
+revision, executable and manifest hashes, evidence, and bounded-state diagnostics.
+
+An [independent TShark wire review](benchmarks/p2p-wire-evidence.json) found that
+12 baseline groups contain no SYN-ACK or application payload in either direction.
+Several are refused or unanswered opening attempts; their uniform sizes are TCP
+headers/options. The other five TCP groups contain plaintext BitTorrent headers
+in some sessions and opaque bidirectional payload in others. One UDP group
+aggregates different DNS names behind a resolver. The detector uses no IP, port,
+BitTorrent, or dataset exception list. Decoded headers provide session context and
+do not suppress findings; the opaque sessions remain unclassified.
+
+The independent review also found that all observed plaintext BitTorrent-header
+streams in those five groups have outbound payload without inbound application
+payload. Requiring replies everywhere would therefore change partial/one-way
+capture coverage. The backend keeps those sessions eligible and reports observed
+response, SYN-ACK, and payload direction separately. The six residual findings
+remain a limitation: legitimate periodic peer and resolver activity can satisfy
+the timing heuristic. A pattern finding needs surrounding host/application
+context rather than proving malicious command-and-control activity.
+
+The new P2P run reports 501 session-record pressure drops at configured retention
+limits and one out-of-order packet. Its final scoring snapshot exposes 12 groups
+excluded for insufficient outbound-payload sessions and two for insufficient
+distinct intervals. These bounded counters describe retained evidence, rather
+than an exhaustive count of every conversation in the capture. Reported protocol
+counts belong to each finding's scoring window and can differ from whole-capture
+wire totals. The original manifests and failed residual evaluation are preserved.
 
 Per-rule recall uses only explicit positive behaviour labels. Benign rates are
 calculated only for declared source-backed normal-host monitoring windows and

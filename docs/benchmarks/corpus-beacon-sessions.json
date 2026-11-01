@@ -1,0 +1,2365 @@
+{
+  "schema_version": 1,
+  "mode": "published_corpus_validation_summary",
+  "source_revision": "e56b91351df28307aef55434b4789ea97c79a661",
+  "application_version": "0.6.1",
+  "executed_on": "2026-11-01",
+  "platform": "windows",
+  "engine": {
+    "beacon_session_scope": {
+      "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+      "max_packet_examples_per_session": 4,
+      "max_retained_sessions": 65536,
+      "payload_bytes": "captured_transport_payload_including_retransmissions",
+      "protocol_context": "per_session_observed_headers_no_suppression",
+      "qualification": "observed_outbound_application_payload",
+      "score": "timing_and_size_heuristic_not_malware_probability",
+      "snapshot_counters": "last_scoring_tick_except_retained_counts"
+    },
+    "dns_global_name_budget": 65536,
+    "engine": "rust-stream",
+    "engine_version": "0.6.1",
+    "fingerprint_users_retained": 2,
+    "limits": {
+      "flow_idle_ms": 120000,
+      "max_alert_records": 1000000,
+      "max_beacon_tracks": 20000,
+      "max_devices": 20000,
+      "max_evidence_packets": 128,
+      "max_findings": 20000,
+      "max_fingerprints": 20000,
+      "max_flows": 20000,
+      "max_probes_per_source": 4096,
+      "max_scan_sources": 2000,
+      "max_starts_per_track": 512,
+      "tick_ms": 1000
+    },
+    "local_live": false,
+    "public_suffix_list": "psl-crate-embedded",
+    "rule_pack_mode": "replacement_present_rules",
+    "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+    "tls_client_scope": "completed_client_hello"
+  },
+  "executable_sha256": "40fee88dc18ac082f856497d10a7ec0d4671b0eb6fcabb346c2b720d88fc1da1",
+  "default_manifest_sha256": "c3f225f9859b587a2c162ea4fd15be910eff6ae42fc39ff61d57fb21af093918",
+  "extended_manifest_sha256": "da2e9c2bcb33b51d9f38d815b861461de5cb7f6481df6e99663c5c556835356a",
+  "baseline": {
+    "summary": "corpus-v0.6.0.json",
+    "source_revision": "8f030b25a90be1564669c1fc16bc029854adcba1",
+    "application_version": "0.6.0",
+    "unique_p2p_findings": 18,
+    "p2p_alert_records": 36
+  },
+  "change": {
+    "unique_p2p_findings": 6,
+    "p2p_alert_records": 11,
+    "unique_findings_reduction_percent": 66.66666666666667,
+    "alert_records_reduction_percent": 69.44444444444444,
+    "rule_pack_changed": false,
+    "manifest_settings_changed": false,
+    "manifest_line_endings": "Baseline manifest hashes cover CRLF files; the current checkout uses LF. Normalizing current text to CRLF reproduces both baseline SHA-256 digests. Git records no manifest changes between the tested source revisions; exact current file hashes are recorded above.",
+    "independent_wire_evidence": "p2p-wire-evidence.json"
+  },
+  "default": {
+    "sources": [
+      {
+        "id": "ctu-normal-dns",
+        "sha256": "7fbefbe1a18867bc683f59890cbc0124e5f6166e5aa13035fcf1ccf2f06f7ae4",
+        "bytes": 772961,
+        "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-4-only-DNS/README.md",
+        "classification": "publisher-labelled normal traffic",
+        "license": "Publisher-provided research capture; no capture bytes redistributed by this project. See source terms.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-periodic-c2",
+        "sha256": "2276e5ac0303296b71d3363c6e844cd94adcac6b256d2b2d4b1c7aa3ccaed035",
+        "bytes": 2072846,
+        "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-1-pcap",
+        "classification": "controlled periodic network capture",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": "147.32.0.0/16",
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-malware-sweep",
+        "sha256": "cd864709778a7449955671315d1ccc3c6694bb120732c6f60fa9ba01e5c962cb",
+        "bytes": 339844,
+        "source_url": "https://github.com/stratosphereips/StratosphereLinuxIPS/tree/b5061a961b8348353070e168e8ea3c9101961f4b/dataset",
+        "classification": "upstream malicious traffic with independently verified sweep label",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "ctu-normal-web",
+        "sha256": "ebd495484e66dea49a7ff95f9ae7415b6a51a963713014ac0e822d2828afb2c7",
+        "bytes": 506351,
+        "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-13/README.html",
+        "classification": "publisher-labelled normal web/TLS traffic",
+        "license": "Publisher permits use with citation to Garcia, Sebastian, Malware Capture Facility Project, Stratosphere IPS. Downloaded locally; no capture bytes redistributed.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-jittered-c2",
+        "sha256": "03e3e0b3e47fcb8801870fc00fd8f7e8f1924bb5398c4ecf28f811eaaf62cdbc",
+        "bytes": 264119,
+        "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-2-pcap",
+        "classification": "controlled semi-periodic network capture",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": "147.32.0.0/16",
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-malware-observation-8",
+        "sha256": "191da8b6eba7846750df8b8d2dbca9664cabdcce0f51978349de5c764e3e6361",
+        "bytes": 31513,
+        "source_url": "https://github.com/stratosphereips/StratosphereLinuxIPS/tree/b5061a961b8348353070e168e8ea3c9101961f4b/dataset",
+        "classification": "publisher malicious traffic; observation only without reviewed rule-level labels",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "graphtunnel-dnscat2-mx",
+        "sha256": "e035355338ff4e432ce7c15d39947bd3e254c20f01b90e1272b4f645b0201be2",
+        "bytes": 13012503,
+        "source_url": "https://github.com/ggyggy666/DNS-Tunnel-Datasets/blob/e3dccb8a9481cc984592bcc6a018a376dc8e5fac/README.md",
+        "classification": "independent researcher-captured DNS tunnel with reviewed positive label",
+        "license": "Publisher research dataset requests citation to GraphTunnel: Robust DNS Tunnel Detection Based on DNS Recursive Resolution Graph. Capture downloaded locally; no bytes redistributed.",
+        "home_nets": "192.168.68.0/24",
+        "benign_exposure": []
+      }
+    ],
+    "passed": true,
+    "summary": {
+      "benign_findings": 0,
+      "captures": 6,
+      "expected_total": 4,
+      "failed": 0,
+      "matched_expectations": 4,
+      "matched_findings": 4,
+      "missed_expectations": 0,
+      "passed": 6,
+      "precision": 1.0,
+      "recall": 1.0,
+      "unexpected_findings": 0,
+      "unique_findings": 4
+    },
+    "cases": [
+      {
+        "name": "ctu-normal-dns",
+        "passed": true,
+        "total_alerts": 0,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 0,
+          "matched_expectations": 0,
+          "matched_findings": 0,
+          "missed_expectations": 0,
+          "precision": null,
+          "recall": null,
+          "unexpected_findings": 0,
+          "unique_findings": 0
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 0,
+            "beacon_control_only_sessions": 0,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 559,
+            "beacon_retained_groups": 2,
+            "beacon_retained_sessions": 559,
+            "beacon_scoring_timestamp_ms": 1427224693528,
+            "beacon_sessions_dropped": 1228,
+            "beacon_syn_retransmissions_ignored": 0,
+            "devices": 1,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 0,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 1228,
+            "findings": 0,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1427217812619,
+            "last_timestamp_ms": 1427224693528,
+            "out_of_order_packets": 0,
+            "packets": 5966,
+            "transport_packets": 5966,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 677481
+          }
+        },
+        "findings": []
+      },
+      {
+        "name": "stratosphere-periodic-c2",
+        "passed": true,
+        "total_alerts": 3,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 3,
+            "beacon_control_only_sessions": 0,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 299,
+            "beacon_retained_groups": 2,
+            "beacon_retained_sessions": 299,
+            "beacon_scoring_timestamp_ms": 1707406064919,
+            "beacon_sessions_dropped": 0,
+            "beacon_syn_retransmissions_ignored": 0,
+            "devices": 1,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 0,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 0,
+            "findings": 1,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1707405399842,
+            "last_timestamp_ms": 1707406064919,
+            "out_of_order_packets": 0,
+            "packets": 7931,
+            "transport_packets": 7931,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 1945926
+          }
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0001",
+            "severity": "high",
+            "src": "147.32.80.37",
+            "dst": "141.193.213.21",
+            "dst_port": 443,
+            "occurrences": 3,
+            "score": 0.9864663468971789,
+            "evidence": {
+              "bidirectional_payload_sessions": 287,
+              "connection_attempts": 288,
+              "connections": 287,
+              "control_only_sessions": 1,
+              "inbound_only_payload_sessions": 0,
+              "interval_cv": 0.093,
+              "interval_mad_ratio": 0.006,
+              "interval_mean_s": 2.248,
+              "interval_median_s": 2.204,
+              "ip_protocol": 6,
+              "jitter_pct": 9.26,
+              "mean_bytes_to_server": 1731.767,
+              "mean_payload_bytes_to_server": 841.411,
+              "measured_intervals": 286,
+              "periodicity_score": 0.994,
+              "protocol_context": {
+                "tls_client_hello": 287
+              },
+              "qualifying_sessions": 287,
+              "response_observed_sessions": 287,
+              "session_confirmation": "observed_outbound_payload",
+              "size_consistency": 0.964,
+              "tcp_syn_ack_sessions": 287,
+              "unclassified_sessions": 0,
+              "window_end_ms": 1707406042883,
+              "window_start_ms": 1707405399842
+            }
+          }
+        ]
+      },
+      {
+        "name": "stratosphere-malware-sweep",
+        "passed": true,
+        "total_alerts": 1,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 1,
+            "beacon_control_only_sessions": 135,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 175,
+            "beacon_retained_groups": 288,
+            "beacon_retained_sessions": 310,
+            "beacon_scoring_timestamp_ms": 1520629198703,
+            "beacon_sessions_dropped": 0,
+            "beacon_syn_retransmissions_ignored": 492,
+            "devices": 10,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 512,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 0,
+            "findings": 1,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1520628556520,
+            "last_timestamp_ms": 1520629198703,
+            "out_of_order_packets": 0,
+            "packets": 2000,
+            "transport_packets": 1969,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 306338
+          }
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0004",
+            "severity": "medium",
+            "src": "192.168.2.16",
+            "dst": null,
+            "dst_port": 23,
+            "occurrences": 1,
+            "score": null,
+            "evidence": {
+              "answered_pct": 0.0,
+              "hosts_probed": 25,
+              "port": 23,
+              "responded": 0,
+              "scan_type": "horizontal",
+              "window_end_ms": 1520629136780,
+              "window_start_ms": 1520629070781
+            }
+          }
+        ]
+      },
+      {
+        "name": "ctu-normal-web",
+        "passed": true,
+        "total_alerts": 0,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 0,
+          "matched_expectations": 0,
+          "matched_findings": 0,
+          "missed_expectations": 0,
+          "precision": null,
+          "recall": null,
+          "unexpected_findings": 0,
+          "unique_findings": 0
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 0,
+            "beacon_control_only_sessions": 6,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 28,
+            "beacon_retained_groups": 8,
+            "beacon_retained_sessions": 34,
+            "beacon_scoring_timestamp_ms": 155563,
+            "beacon_sessions_dropped": 0,
+            "beacon_syn_retransmissions_ignored": 9,
+            "devices": 5,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 0,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 0,
+            "findings": 0,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 7392,
+            "last_timestamp_ms": 155563,
+            "out_of_order_packets": 0,
+            "packets": 949,
+            "transport_packets": 933,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 490471
+          }
+        },
+        "findings": []
+      },
+      {
+        "name": "stratosphere-jittered-c2",
+        "passed": true,
+        "total_alerts": 1,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 1,
+            "beacon_control_only_sessions": 0,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 22,
+            "beacon_retained_groups": 1,
+            "beacon_retained_sessions": 22,
+            "beacon_scoring_timestamp_ms": 1707834946286,
+            "beacon_sessions_dropped": 0,
+            "beacon_syn_retransmissions_ignored": 0,
+            "devices": 3,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 0,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 0,
+            "findings": 1,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1707834878788,
+            "last_timestamp_ms": 1707834946286,
+            "out_of_order_packets": 0,
+            "packets": 1084,
+            "transport_packets": 1084,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 246751
+          }
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "147.32.80.37",
+            "dst": "141.193.213.20",
+            "dst_port": 443,
+            "occurrences": 1,
+            "score": 0.8939567386147124,
+            "evidence": {
+              "bidirectional_payload_sessions": 8,
+              "connection_attempts": 8,
+              "connections": 8,
+              "control_only_sessions": 0,
+              "inbound_only_payload_sessions": 0,
+              "interval_cv": 0.127,
+              "interval_mad_ratio": 0.117,
+              "interval_mean_s": 3.2,
+              "interval_median_s": 3.124,
+              "ip_protocol": 6,
+              "jitter_pct": 12.689,
+              "mean_bytes_to_server": 1720.5,
+              "mean_payload_bytes_to_server": 838.0,
+              "measured_intervals": 7,
+              "periodicity_score": 0.883,
+              "protocol_context": {
+                "tls_client_hello": 8
+              },
+              "qualifying_sessions": 8,
+              "response_observed_sessions": 8,
+              "session_confirmation": "observed_outbound_payload",
+              "size_consistency": 0.928,
+              "tcp_syn_ack_sessions": 8,
+              "unclassified_sessions": 0,
+              "window_end_ms": 1707834903329,
+              "window_start_ms": 1707834880856
+            }
+          }
+        ]
+      },
+      {
+        "name": "graphtunnel-dnscat2-mx",
+        "passed": true,
+        "total_alerts": 1,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 20687,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 1,
+            "beacon_control_only_sessions": 0,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 0,
+            "beacon_retained_groups": 0,
+            "beacon_retained_sessions": 0,
+            "beacon_scoring_timestamp_ms": 1693747181016,
+            "beacon_sessions_dropped": 0,
+            "beacon_syn_retransmissions_ignored": 0,
+            "devices": 2,
+            "dropped_dns_name_events": 19687,
+            "dropped_evidence_refs": 51243,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 0,
+            "findings": 1,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1693738519083,
+            "last_timestamp_ms": 1693747181016,
+            "out_of_order_packets": 0,
+            "packets": 51371,
+            "transport_packets": 51371,
+            "uncertainty_limited_dns_scores": 258,
+            "wire_bytes": 12190543
+          }
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0002",
+            "severity": "medium",
+            "src": "192.168.68.62",
+            "dst": "192.168.68.1",
+            "dst_port": 53,
+            "occurrences": 1,
+            "score": 0.711,
+            "evidence": {
+              "avg_entropy_bits": 3.823,
+              "avg_subdomain_len": 54.5,
+              "domain": "ggy666.tk",
+              "max_subdomain_len": 223,
+              "name_retention_limited": false,
+              "public_suffix_list": "psl-crate-embedded",
+              "queries": 46,
+              "queries_per_min": 92.237,
+              "score_upper_bound": 0.711,
+              "txt_null_ratio": 0.0,
+              "unique_names": 46,
+              "unique_ratio": 1.0,
+              "unique_ratio_is_lower_bound": false,
+              "unique_ratio_upper_bound": 1.0
+            }
+          }
+        ]
+      }
+    ],
+    "observations": [
+      {
+        "mode": "analysis",
+        "total_alerts": 0,
+        "unique_findings": 0,
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 0,
+            "beacon_control_only_sessions": 0,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 1,
+            "beacon_retained_groups": 1,
+            "beacon_retained_sessions": 1,
+            "beacon_scoring_timestamp_ms": 1632214658604,
+            "beacon_sessions_dropped": 0,
+            "beacon_syn_retransmissions_ignored": 0,
+            "devices": 1,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 0,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 0,
+            "findings": 0,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1632214645783,
+            "last_timestamp_ms": 1632214658604,
+            "out_of_order_packets": 0,
+            "packets": 534,
+            "transport_packets": 15,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 1075
+          }
+        }
+      }
+    ],
+    "validation": {
+      "interpretation": [
+        "Recall applies only to the supplied labelled behaviours for each rule, not all attacks in the traces or field malware recall.",
+        "Benign rates use only explicitly reviewed whole-capture monitored host windows and their declared observable rule scope; idle activity is not inferred from packet timestamps.",
+        "Repeated alert records and unique finding groups are reported separately. Neither host-hour rate is a true-negative-based false-positive probability.",
+        "Missing or unreviewed exposure produces null rates. Capture coverage, policy, severity floor, and stated source assumptions limit comparisons."
+      ],
+      "labelled_cases": 6,
+      "observation_only_cases": 1,
+      "per_rule": [
+        {
+          "benign_alert_records_per_host_hour": null,
+          "benign_unique_findings_per_host_hour": null,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [],
+          "labelled_behaviours": 2,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": 1.0,
+          "matched_behaviours": 2,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": null,
+          "rule_id": "TH-0001",
+          "unexpected_unique_findings": 0
+        },
+        {
+          "benign_alert_records_per_host_hour": null,
+          "benign_unique_findings_per_host_hour": null,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [],
+          "labelled_behaviours": 1,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": 1.0,
+          "matched_behaviours": 1,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": null,
+          "rule_id": "TH-0002",
+          "unexpected_unique_findings": 0
+        },
+        {
+          "benign_alert_records_per_host_hour": null,
+          "benign_unique_findings_per_host_hour": null,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [],
+          "labelled_behaviours": 1,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": 1.0,
+          "matched_behaviours": 1,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": null,
+          "rule_id": "TH-0004",
+          "unexpected_unique_findings": 0
+        }
+      ],
+      "schema_version": 1
+    }
+  },
+  "extended": {
+    "sources": [
+      {
+        "id": "ctu-normal-dns",
+        "sha256": "7fbefbe1a18867bc683f59890cbc0124e5f6166e5aa13035fcf1ccf2f06f7ae4",
+        "bytes": 772961,
+        "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-4-only-DNS/README.md",
+        "classification": "publisher-labelled normal traffic",
+        "license": "Publisher-provided research capture; no capture bytes redistributed by this project. See source terms.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-periodic-c2",
+        "sha256": "2276e5ac0303296b71d3363c6e844cd94adcac6b256d2b2d4b1c7aa3ccaed035",
+        "bytes": 2072846,
+        "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-1-pcap",
+        "classification": "controlled periodic network capture",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": "147.32.0.0/16",
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-malware-sweep",
+        "sha256": "cd864709778a7449955671315d1ccc3c6694bb120732c6f60fa9ba01e5c962cb",
+        "bytes": 339844,
+        "source_url": "https://github.com/stratosphereips/StratosphereLinuxIPS/tree/b5061a961b8348353070e168e8ea3c9101961f4b/dataset",
+        "classification": "upstream malicious traffic with independently verified sweep label",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "ctu-normal-web",
+        "sha256": "ebd495484e66dea49a7ff95f9ae7415b6a51a963713014ac0e822d2828afb2c7",
+        "bytes": 506351,
+        "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-13/README.html",
+        "classification": "publisher-labelled normal web/TLS traffic",
+        "license": "Publisher permits use with citation to Garcia, Sebastian, Malware Capture Facility Project, Stratosphere IPS. Downloaded locally; no capture bytes redistributed.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-jittered-c2",
+        "sha256": "03e3e0b3e47fcb8801870fc00fd8f7e8f1924bb5398c4ecf28f811eaaf62cdbc",
+        "bytes": 264119,
+        "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-2-pcap",
+        "classification": "controlled semi-periodic network capture",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": "147.32.0.0/16",
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-malware-observation-8",
+        "sha256": "191da8b6eba7846750df8b8d2dbca9664cabdcce0f51978349de5c764e3e6361",
+        "bytes": 31513,
+        "source_url": "https://github.com/stratosphereips/StratosphereLinuxIPS/tree/b5061a961b8348353070e168e8ea3c9101961f4b/dataset",
+        "classification": "publisher malicious traffic; observation only without reviewed rule-level labels",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "ctu-normal-p2p",
+        "sha256": "9daf9c1746dae37a234bac32090e8bc925e837af78cfffc3b4cc7c46d901542b",
+        "bytes": 417195191,
+        "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/README.html",
+        "classification": "publisher-verified normal P2P/web/messaging traffic",
+        "license": "Publisher-provided research capture; no capture bytes redistributed by this project. Cite Garcia, Sebastian, Malware Capture Facility Project, Stratosphere IPS.",
+        "home_nets": "10.0.0.0/24",
+        "benign_exposure": [
+          {
+            "assumptions": [
+              "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+              "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+              "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+              "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+            ],
+            "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+            "host": "10.0.0.46",
+            "monitored_seconds": 1282.0,
+            "rule_ids": [
+              "TH-0001",
+              "TH-0002",
+              "TH-0003",
+              "TH-0004",
+              "TH-0005",
+              "TH-0007"
+            ],
+            "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+          }
+        ]
+      },
+      {
+        "id": "graphtunnel-dnscat2-mx",
+        "sha256": "e035355338ff4e432ce7c15d39947bd3e254c20f01b90e1272b4f645b0201be2",
+        "bytes": 13012503,
+        "source_url": "https://github.com/ggyggy666/DNS-Tunnel-Datasets/blob/e3dccb8a9481cc984592bcc6a018a376dc8e5fac/README.md",
+        "classification": "independent researcher-captured DNS tunnel with reviewed positive label",
+        "license": "Publisher research dataset requests citation to GraphTunnel: Robust DNS Tunnel Detection Based on DNS Recursive Resolution Graph. Capture downloaded locally; no bytes redistributed.",
+        "home_nets": "192.168.68.0/24",
+        "benign_exposure": []
+      }
+    ],
+    "passed": false,
+    "summary": {
+      "benign_findings": 6,
+      "captures": 7,
+      "expected_total": 4,
+      "failed": 1,
+      "matched_expectations": 4,
+      "matched_findings": 4,
+      "missed_expectations": 0,
+      "passed": 6,
+      "precision": 0.4,
+      "recall": 1.0,
+      "unexpected_findings": 6,
+      "unique_findings": 10
+    },
+    "cases": [
+      {
+        "name": "ctu-normal-dns",
+        "passed": true,
+        "total_alerts": 0,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 0,
+          "matched_expectations": 0,
+          "matched_findings": 0,
+          "missed_expectations": 0,
+          "precision": null,
+          "recall": null,
+          "unexpected_findings": 0,
+          "unique_findings": 0
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 0,
+            "beacon_control_only_sessions": 0,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 559,
+            "beacon_retained_groups": 2,
+            "beacon_retained_sessions": 559,
+            "beacon_scoring_timestamp_ms": 1427224693528,
+            "beacon_sessions_dropped": 1228,
+            "beacon_syn_retransmissions_ignored": 0,
+            "devices": 1,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 0,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 1228,
+            "findings": 0,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1427217812619,
+            "last_timestamp_ms": 1427224693528,
+            "out_of_order_packets": 0,
+            "packets": 5966,
+            "transport_packets": 5966,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 677481
+          }
+        },
+        "findings": []
+      },
+      {
+        "name": "stratosphere-periodic-c2",
+        "passed": true,
+        "total_alerts": 3,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 3,
+            "beacon_control_only_sessions": 0,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 299,
+            "beacon_retained_groups": 2,
+            "beacon_retained_sessions": 299,
+            "beacon_scoring_timestamp_ms": 1707406064919,
+            "beacon_sessions_dropped": 0,
+            "beacon_syn_retransmissions_ignored": 0,
+            "devices": 1,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 0,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 0,
+            "findings": 1,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1707405399842,
+            "last_timestamp_ms": 1707406064919,
+            "out_of_order_packets": 0,
+            "packets": 7931,
+            "transport_packets": 7931,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 1945926
+          }
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0001",
+            "severity": "high",
+            "src": "147.32.80.37",
+            "dst": "141.193.213.21",
+            "dst_port": 443,
+            "occurrences": 3,
+            "score": 0.9864663468971789,
+            "evidence": {
+              "bidirectional_payload_sessions": 287,
+              "connection_attempts": 288,
+              "connections": 287,
+              "control_only_sessions": 1,
+              "inbound_only_payload_sessions": 0,
+              "interval_cv": 0.093,
+              "interval_mad_ratio": 0.006,
+              "interval_mean_s": 2.248,
+              "interval_median_s": 2.204,
+              "ip_protocol": 6,
+              "jitter_pct": 9.26,
+              "mean_bytes_to_server": 1731.767,
+              "mean_payload_bytes_to_server": 841.411,
+              "measured_intervals": 286,
+              "periodicity_score": 0.994,
+              "protocol_context": {
+                "tls_client_hello": 287
+              },
+              "qualifying_sessions": 287,
+              "response_observed_sessions": 287,
+              "session_confirmation": "observed_outbound_payload",
+              "size_consistency": 0.964,
+              "tcp_syn_ack_sessions": 287,
+              "unclassified_sessions": 0,
+              "window_end_ms": 1707406042883,
+              "window_start_ms": 1707405399842
+            }
+          }
+        ]
+      },
+      {
+        "name": "stratosphere-malware-sweep",
+        "passed": true,
+        "total_alerts": 1,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 1,
+            "beacon_control_only_sessions": 135,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 175,
+            "beacon_retained_groups": 288,
+            "beacon_retained_sessions": 310,
+            "beacon_scoring_timestamp_ms": 1520629198703,
+            "beacon_sessions_dropped": 0,
+            "beacon_syn_retransmissions_ignored": 492,
+            "devices": 10,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 512,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 0,
+            "findings": 1,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1520628556520,
+            "last_timestamp_ms": 1520629198703,
+            "out_of_order_packets": 0,
+            "packets": 2000,
+            "transport_packets": 1969,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 306338
+          }
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0004",
+            "severity": "medium",
+            "src": "192.168.2.16",
+            "dst": null,
+            "dst_port": 23,
+            "occurrences": 1,
+            "score": null,
+            "evidence": {
+              "answered_pct": 0.0,
+              "hosts_probed": 25,
+              "port": 23,
+              "responded": 0,
+              "scan_type": "horizontal",
+              "window_end_ms": 1520629136780,
+              "window_start_ms": 1520629070781
+            }
+          }
+        ]
+      },
+      {
+        "name": "ctu-normal-web",
+        "passed": true,
+        "total_alerts": 0,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 0,
+          "matched_expectations": 0,
+          "matched_findings": 0,
+          "missed_expectations": 0,
+          "precision": null,
+          "recall": null,
+          "unexpected_findings": 0,
+          "unique_findings": 0
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 0,
+            "beacon_control_only_sessions": 6,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 28,
+            "beacon_retained_groups": 8,
+            "beacon_retained_sessions": 34,
+            "beacon_scoring_timestamp_ms": 155563,
+            "beacon_sessions_dropped": 0,
+            "beacon_syn_retransmissions_ignored": 9,
+            "devices": 5,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 0,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 0,
+            "findings": 0,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 7392,
+            "last_timestamp_ms": 155563,
+            "out_of_order_packets": 0,
+            "packets": 949,
+            "transport_packets": 933,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 490471
+          }
+        },
+        "findings": []
+      },
+      {
+        "name": "stratosphere-jittered-c2",
+        "passed": true,
+        "total_alerts": 1,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 1,
+            "beacon_control_only_sessions": 0,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 22,
+            "beacon_retained_groups": 1,
+            "beacon_retained_sessions": 22,
+            "beacon_scoring_timestamp_ms": 1707834946286,
+            "beacon_sessions_dropped": 0,
+            "beacon_syn_retransmissions_ignored": 0,
+            "devices": 3,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 0,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 0,
+            "findings": 1,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1707834878788,
+            "last_timestamp_ms": 1707834946286,
+            "out_of_order_packets": 0,
+            "packets": 1084,
+            "transport_packets": 1084,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 246751
+          }
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "147.32.80.37",
+            "dst": "141.193.213.20",
+            "dst_port": 443,
+            "occurrences": 1,
+            "score": 0.8939567386147124,
+            "evidence": {
+              "bidirectional_payload_sessions": 8,
+              "connection_attempts": 8,
+              "connections": 8,
+              "control_only_sessions": 0,
+              "inbound_only_payload_sessions": 0,
+              "interval_cv": 0.127,
+              "interval_mad_ratio": 0.117,
+              "interval_mean_s": 3.2,
+              "interval_median_s": 3.124,
+              "ip_protocol": 6,
+              "jitter_pct": 12.689,
+              "mean_bytes_to_server": 1720.5,
+              "mean_payload_bytes_to_server": 838.0,
+              "measured_intervals": 7,
+              "periodicity_score": 0.883,
+              "protocol_context": {
+                "tls_client_hello": 8
+              },
+              "qualifying_sessions": 8,
+              "response_observed_sessions": 8,
+              "session_confirmation": "observed_outbound_payload",
+              "size_consistency": 0.928,
+              "tcp_syn_ack_sessions": 8,
+              "unclassified_sessions": 0,
+              "window_end_ms": 1707834903329,
+              "window_start_ms": 1707834880856
+            }
+          }
+        ]
+      },
+      {
+        "name": "ctu-normal-p2p",
+        "passed": false,
+        "total_alerts": 11,
+        "summary": {
+          "benign_findings": 6,
+          "expected_total": 0,
+          "matched_expectations": 0,
+          "matched_findings": 0,
+          "missed_expectations": 0,
+          "precision": 0.0,
+          "recall": null,
+          "unexpected_findings": 6,
+          "unique_findings": 6
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 11,
+            "beacon_control_only_sessions": 229,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 2,
+            "beacon_insufficient_payload_groups": 12,
+            "beacon_qualifying_sessions": 1819,
+            "beacon_retained_groups": 1035,
+            "beacon_retained_sessions": 2048,
+            "beacon_scoring_timestamp_ms": 1387315841386,
+            "beacon_sessions_dropped": 501,
+            "beacon_syn_retransmissions_ignored": 94,
+            "devices": 2,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 455491,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 501,
+            "findings": 6,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1387314559500,
+            "last_timestamp_ms": 1387315841386,
+            "out_of_order_packets": 1,
+            "packets": 471237,
+            "transport_packets": 471237,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 409655375
+          }
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "1.34.38.64",
+            "dst_port": 13690,
+            "occurrences": 2,
+            "score": 0.7920491172986712,
+            "evidence": {
+              "bidirectional_payload_sessions": 9,
+              "connection_attempts": 17,
+              "connections": 17,
+              "control_only_sessions": 0,
+              "inbound_only_payload_sessions": 0,
+              "interval_cv": 0.089,
+              "interval_mad_ratio": 0.083,
+              "interval_mean_s": 66.741,
+              "interval_median_s": 66.556,
+              "ip_protocol": 6,
+              "jitter_pct": 8.932,
+              "mean_bytes_to_server": 834.941,
+              "mean_payload_bytes_to_server": 462.0,
+              "measured_intervals": 16,
+              "periodicity_score": 0.917,
+              "protocol_context": {
+                "bittorrent_peer": 8
+              },
+              "qualifying_sessions": 17,
+              "response_observed_sessions": 17,
+              "session_confirmation": "observed_outbound_payload",
+              "size_consistency": 0.417,
+              "tcp_syn_ack_sessions": 17,
+              "unclassified_sessions": 9,
+              "window_end_ms": 1387315637095,
+              "window_start_ms": 1387314566626
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "high",
+            "src": "10.0.0.46",
+            "dst": "8.8.8.8",
+            "dst_port": 53,
+            "occurrences": 2,
+            "score": 0.9105197266699484,
+            "evidence": {
+              "bidirectional_payload_sessions": 20,
+              "connection_attempts": 20,
+              "connections": 20,
+              "control_only_sessions": 0,
+              "inbound_only_payload_sessions": 0,
+              "interval_cv": 2.694,
+              "interval_mad_ratio": 0.058,
+              "interval_mean_s": 9.522,
+              "interval_median_s": 5.033,
+              "ip_protocol": 17,
+              "jitter_pct": 269.383,
+              "mean_bytes_to_server": 88.8,
+              "mean_payload_bytes_to_server": 44.7,
+              "measured_intervals": 19,
+              "periodicity_score": 0.942,
+              "protocol_context": {
+                "dns_query": 20
+              },
+              "qualifying_sessions": 20,
+              "response_observed_sessions": 20,
+              "session_confirmation": "observed_outbound_payload",
+              "size_consistency": 0.815,
+              "tcp_syn_ack_sessions": 0,
+              "unclassified_sessions": 0,
+              "window_end_ms": 1387314788659,
+              "window_start_ms": 1387314607595
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "110.20.170.10",
+            "dst_port": 29151,
+            "occurrences": 2,
+            "score": 0.8445042695371214,
+            "evidence": {
+              "bidirectional_payload_sessions": 8,
+              "connection_attempts": 16,
+              "connections": 16,
+              "control_only_sessions": 0,
+              "inbound_only_payload_sessions": 0,
+              "interval_cv": 0.018,
+              "interval_mad_ratio": 0.0,
+              "interval_mean_s": 71.522,
+              "interval_median_s": 71.058,
+              "ip_protocol": 6,
+              "jitter_pct": 1.835,
+              "mean_bytes_to_server": 858.813,
+              "mean_payload_bytes_to_server": 415.938,
+              "measured_intervals": 15,
+              "periodicity_score": 1.0,
+              "protocol_context": {
+                "bittorrent_peer": 8
+              },
+              "qualifying_sessions": 16,
+              "response_observed_sessions": 16,
+              "session_confirmation": "observed_outbound_payload",
+              "size_consistency": 0.379,
+              "tcp_syn_ack_sessions": 16,
+              "unclassified_sessions": 8,
+              "window_end_ms": 1387315690019,
+              "window_start_ms": 1387314605673
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "111.253.136.152",
+            "dst_port": 25407,
+            "occurrences": 2,
+            "score": 0.843050651238439,
+            "evidence": {
+              "bidirectional_payload_sessions": 8,
+              "connection_attempts": 16,
+              "connections": 16,
+              "control_only_sessions": 0,
+              "inbound_only_payload_sessions": 0,
+              "interval_cv": 0.097,
+              "interval_mad_ratio": 0.017,
+              "interval_mean_s": 66.652,
+              "interval_median_s": 61.072,
+              "ip_protocol": 6,
+              "jitter_pct": 9.711,
+              "mean_bytes_to_server": 801.375,
+              "mean_payload_bytes_to_server": 408.25,
+              "measured_intervals": 15,
+              "periodicity_score": 0.983,
+              "protocol_context": {
+                "bittorrent_peer": 8
+              },
+              "qualifying_sessions": 16,
+              "response_observed_sessions": 16,
+              "session_confirmation": "observed_outbound_payload",
+              "size_consistency": 0.423,
+              "tcp_syn_ack_sessions": 16,
+              "unclassified_sessions": 8,
+              "window_end_ms": 1387315611784,
+              "window_start_ms": 1387314599664
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "123.194.198.20",
+            "dst_port": 25243,
+            "occurrences": 2,
+            "score": 0.8623863081550307,
+            "evidence": {
+              "bidirectional_payload_sessions": 8,
+              "connection_attempts": 16,
+              "connections": 16,
+              "control_only_sessions": 0,
+              "inbound_only_payload_sessions": 0,
+              "interval_cv": 0.073,
+              "interval_mad_ratio": 0.001,
+              "interval_mean_s": 68.787,
+              "interval_median_s": 72.044,
+              "ip_protocol": 6,
+              "jitter_pct": 7.256,
+              "mean_bytes_to_server": 813.063,
+              "mean_payload_bytes_to_server": 429.688,
+              "measured_intervals": 15,
+              "periodicity_score": 0.999,
+              "protocol_context": {
+                "bittorrent_peer": 8
+              },
+              "qualifying_sessions": 16,
+              "response_observed_sessions": 16,
+              "session_confirmation": "observed_outbound_payload",
+              "size_consistency": 0.451,
+              "tcp_syn_ack_sessions": 16,
+              "unclassified_sessions": 8,
+              "window_end_ms": 1387315633248,
+              "window_start_ms": 1387314600666
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "221.118.146.13",
+            "dst_port": 10073,
+            "occurrences": 1,
+            "score": 0.8360185796135025,
+            "evidence": {
+              "bidirectional_payload_sessions": 3,
+              "connection_attempts": 8,
+              "connections": 8,
+              "control_only_sessions": 0,
+              "inbound_only_payload_sessions": 0,
+              "interval_cv": 0.334,
+              "interval_mad_ratio": 0.016,
+              "interval_mean_s": 57.109,
+              "interval_median_s": 61.041,
+              "ip_protocol": 6,
+              "jitter_pct": 33.353,
+              "mean_bytes_to_server": 758.0,
+              "mean_payload_bytes_to_server": 411.75,
+              "measured_intervals": 7,
+              "periodicity_score": 0.984,
+              "protocol_context": {
+                "bittorrent_peer": 4
+              },
+              "qualifying_sessions": 8,
+              "response_observed_sessions": 8,
+              "session_confirmation": "observed_outbound_payload",
+              "size_consistency": 0.393,
+              "tcp_syn_ack_sessions": 8,
+              "unclassified_sessions": 4,
+              "window_end_ms": 1387315470733,
+              "window_start_ms": 1387315070570
+            }
+          }
+        ]
+      },
+      {
+        "name": "graphtunnel-dnscat2-mx",
+        "passed": true,
+        "total_alerts": 1,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "analysis": {
+          "inline_context_observations_dropped": 20687,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 1,
+            "beacon_control_only_sessions": 0,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 0,
+            "beacon_retained_groups": 0,
+            "beacon_retained_sessions": 0,
+            "beacon_scoring_timestamp_ms": 1693747181016,
+            "beacon_sessions_dropped": 0,
+            "beacon_syn_retransmissions_ignored": 0,
+            "devices": 2,
+            "dropped_dns_name_events": 19687,
+            "dropped_evidence_refs": 51243,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 0,
+            "findings": 1,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1693738519083,
+            "last_timestamp_ms": 1693747181016,
+            "out_of_order_packets": 0,
+            "packets": 51371,
+            "transport_packets": 51371,
+            "uncertainty_limited_dns_scores": 258,
+            "wire_bytes": 12190543
+          }
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0002",
+            "severity": "medium",
+            "src": "192.168.68.62",
+            "dst": "192.168.68.1",
+            "dst_port": 53,
+            "occurrences": 1,
+            "score": 0.711,
+            "evidence": {
+              "avg_entropy_bits": 3.823,
+              "avg_subdomain_len": 54.5,
+              "domain": "ggy666.tk",
+              "max_subdomain_len": 223,
+              "name_retention_limited": false,
+              "public_suffix_list": "psl-crate-embedded",
+              "queries": 46,
+              "queries_per_min": 92.237,
+              "score_upper_bound": 0.711,
+              "txt_null_ratio": 0.0,
+              "unique_names": 46,
+              "unique_ratio": 1.0,
+              "unique_ratio_is_lower_bound": false,
+              "unique_ratio_upper_bound": 1.0
+            }
+          }
+        ]
+      }
+    ],
+    "observations": [
+      {
+        "mode": "analysis",
+        "total_alerts": 0,
+        "unique_findings": 0,
+        "analysis": {
+          "inline_context_observations_dropped": 0,
+          "metadata": {
+            "beacon_session_scope": {
+              "dropped_sessions": "cumulative_pressure_evictions_or_rejections_excluding_history_expiry",
+              "max_packet_examples_per_session": 4,
+              "max_retained_sessions": 65536,
+              "payload_bytes": "captured_transport_payload_including_retransmissions",
+              "protocol_context": "per_session_observed_headers_no_suppression",
+              "qualification": "observed_outbound_application_payload",
+              "score": "timing_and_size_heuristic_not_malware_probability",
+              "snapshot_counters": "last_scoring_tick_except_retained_counts"
+            },
+            "dns_global_name_budget": 65536,
+            "engine": "rust-stream",
+            "engine_version": "0.6.1",
+            "fingerprint_users_retained": 2,
+            "limits": {
+              "flow_idle_ms": 120000,
+              "max_alert_records": 1000000,
+              "max_beacon_tracks": 20000,
+              "max_devices": 20000,
+              "max_evidence_packets": 128,
+              "max_findings": 20000,
+              "max_fingerprints": 20000,
+              "max_flows": 20000,
+              "max_probes_per_source": 4096,
+              "max_scan_sources": 2000,
+              "max_starts_per_track": 512,
+              "tick_ms": 1000
+            },
+            "local_live": false,
+            "public_suffix_list": "psl-crate-embedded",
+            "rule_pack_mode": "replacement_present_rules",
+            "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+            "tls_client_scope": "completed_client_hello"
+          },
+          "policy_notes": [
+            "Rust replacement packs enable only listed rule IDs; Go permits unlisted emitted IDs.",
+            "Hard stream limits may reduce retained evidence; inspect dropped counters.",
+            "TH-0009 long-connection is opt-in; it has no built-in enabled rule."
+          ],
+          "stats": {
+            "active_flows": 0,
+            "alert_records": 0,
+            "beacon_control_only_sessions": 0,
+            "beacon_inbound_only_payload_sessions": 0,
+            "beacon_insufficient_interval_groups": 0,
+            "beacon_insufficient_payload_groups": 0,
+            "beacon_qualifying_sessions": 1,
+            "beacon_retained_groups": 1,
+            "beacon_retained_sessions": 1,
+            "beacon_scoring_timestamp_ms": 1632214658604,
+            "beacon_sessions_dropped": 0,
+            "beacon_syn_retransmissions_ignored": 0,
+            "devices": 1,
+            "dropped_dns_name_events": 0,
+            "dropped_evidence_refs": 0,
+            "dropped_findings": 0,
+            "dropped_flow_packets": 0,
+            "dropped_tracking_events": 0,
+            "findings": 0,
+            "fingerprint_user_samples_omitted": 0,
+            "first_timestamp_ms": 1632214645783,
+            "last_timestamp_ms": 1632214658604,
+            "out_of_order_packets": 0,
+            "packets": 534,
+            "transport_packets": 15,
+            "uncertainty_limited_dns_scores": 0,
+            "wire_bytes": 1075
+          }
+        }
+      }
+    ],
+    "validation": {
+      "interpretation": [
+        "Recall applies only to the supplied labelled behaviours for each rule, not all attacks in the traces or field malware recall.",
+        "Benign rates use only explicitly reviewed whole-capture monitored host windows and their declared observable rule scope; idle activity is not inferred from packet timestamps.",
+        "Repeated alert records and unique finding groups are reported separately. Neither host-hour rate is a true-negative-based false-positive probability.",
+        "Missing or unreviewed exposure produces null rates. Capture coverage, policy, severity floor, and stated source assumptions limit comparisons."
+      ],
+      "labelled_cases": 7,
+      "observation_only_cases": 1,
+      "per_rule": [
+        {
+          "benign_alert_records_per_host_hour": 30.889235569422777,
+          "benign_unique_findings_per_host_hour": 16.848673946957877,
+          "exposure_benign_alert_records": 11,
+          "exposure_benign_unique_findings": 6,
+          "exposure_cases": [
+            {
+              "assumptions": [
+                "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+                "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+                "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+                "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+              ],
+              "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+              "case_id": "ctu-normal-p2p",
+              "host": "10.0.0.46",
+              "monitored_seconds": 1282.0,
+              "rule_ids": [
+                "TH-0001",
+                "TH-0002",
+                "TH-0003",
+                "TH-0004",
+                "TH-0005",
+                "TH-0007"
+              ],
+              "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+            }
+          ],
+          "labelled_behaviours": 2,
+          "labelled_benign_alert_records": 11,
+          "labelled_benign_unique_findings": 6,
+          "labelled_recall": 1.0,
+          "matched_behaviours": 2,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": 0.3561111111111111,
+          "rule_id": "TH-0001",
+          "unexpected_unique_findings": 6
+        },
+        {
+          "benign_alert_records_per_host_hour": 0.0,
+          "benign_unique_findings_per_host_hour": 0.0,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [
+            {
+              "assumptions": [
+                "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+                "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+                "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+                "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+              ],
+              "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+              "case_id": "ctu-normal-p2p",
+              "host": "10.0.0.46",
+              "monitored_seconds": 1282.0,
+              "rule_ids": [
+                "TH-0001",
+                "TH-0002",
+                "TH-0003",
+                "TH-0004",
+                "TH-0005",
+                "TH-0007"
+              ],
+              "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+            }
+          ],
+          "labelled_behaviours": 1,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": 1.0,
+          "matched_behaviours": 1,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": 0.3561111111111111,
+          "rule_id": "TH-0002",
+          "unexpected_unique_findings": 0
+        },
+        {
+          "benign_alert_records_per_host_hour": 0.0,
+          "benign_unique_findings_per_host_hour": 0.0,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [
+            {
+              "assumptions": [
+                "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+                "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+                "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+                "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+              ],
+              "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+              "case_id": "ctu-normal-p2p",
+              "host": "10.0.0.46",
+              "monitored_seconds": 1282.0,
+              "rule_ids": [
+                "TH-0001",
+                "TH-0002",
+                "TH-0003",
+                "TH-0004",
+                "TH-0005",
+                "TH-0007"
+              ],
+              "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+            }
+          ],
+          "labelled_behaviours": 0,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": null,
+          "matched_behaviours": 0,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": 0.3561111111111111,
+          "rule_id": "TH-0003",
+          "unexpected_unique_findings": 0
+        },
+        {
+          "benign_alert_records_per_host_hour": 0.0,
+          "benign_unique_findings_per_host_hour": 0.0,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [
+            {
+              "assumptions": [
+                "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+                "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+                "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+                "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+              ],
+              "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+              "case_id": "ctu-normal-p2p",
+              "host": "10.0.0.46",
+              "monitored_seconds": 1282.0,
+              "rule_ids": [
+                "TH-0001",
+                "TH-0002",
+                "TH-0003",
+                "TH-0004",
+                "TH-0005",
+                "TH-0007"
+              ],
+              "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+            }
+          ],
+          "labelled_behaviours": 1,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": 1.0,
+          "matched_behaviours": 1,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": 0.3561111111111111,
+          "rule_id": "TH-0004",
+          "unexpected_unique_findings": 0
+        },
+        {
+          "benign_alert_records_per_host_hour": 0.0,
+          "benign_unique_findings_per_host_hour": 0.0,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [
+            {
+              "assumptions": [
+                "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+                "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+                "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+                "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+              ],
+              "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+              "case_id": "ctu-normal-p2p",
+              "host": "10.0.0.46",
+              "monitored_seconds": 1282.0,
+              "rule_ids": [
+                "TH-0001",
+                "TH-0002",
+                "TH-0003",
+                "TH-0004",
+                "TH-0005",
+                "TH-0007"
+              ],
+              "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+            }
+          ],
+          "labelled_behaviours": 0,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": null,
+          "matched_behaviours": 0,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": 0.3561111111111111,
+          "rule_id": "TH-0005",
+          "unexpected_unique_findings": 0
+        },
+        {
+          "benign_alert_records_per_host_hour": 0.0,
+          "benign_unique_findings_per_host_hour": 0.0,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [
+            {
+              "assumptions": [
+                "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+                "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+                "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+                "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+              ],
+              "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+              "case_id": "ctu-normal-p2p",
+              "host": "10.0.0.46",
+              "monitored_seconds": 1282.0,
+              "rule_ids": [
+                "TH-0001",
+                "TH-0002",
+                "TH-0003",
+                "TH-0004",
+                "TH-0005",
+                "TH-0007"
+              ],
+              "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+            }
+          ],
+          "labelled_behaviours": 0,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": null,
+          "matched_behaviours": 0,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": 0.3561111111111111,
+          "rule_id": "TH-0007",
+          "unexpected_unique_findings": 0
+        }
+      ],
+      "schema_version": 1
+    }
+  },
+  "limitations": [
+    "The extended P2P case still fails its explicitly benign labels with six residual findings: five mixed peer groups and one DNS group.",
+    "This small reviewed corpus does not establish general malware recall, production precision, or a false-positive probability.",
+    "Session records and original packet examples are bounded; retained protocol counts describe scoring windows, not complete capture-wide dissections.",
+    "Outbound-only application sessions remain eligible; missing inbound data does not prove a successful exchange or benign traffic.",
+    "No capture bytes, original packet references, payloads, torrent info-hashes, peer IDs, or local capture paths are included in this summary."
+  ]
+}
