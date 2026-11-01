@@ -98,8 +98,9 @@ Native package checks exercise the actual artifact:
   installed backend and real GUI startup, then uninstalls it.
 - macOS verifies/mounts the DMG, checks the app's structure/signature/notices, and
   executes its backend and GUI from inside the mounted app.
-- Linux extracts the Debian package, validates its desktop entry, verifies the
-  backend, and renders the GUI under Xvfb.
+- Linux validates the Debian package and desktop entry, installs through apt to
+  resolve declared runtime dependencies, verifies the installed backend and GUI
+  under Xvfb, then removes the package and checks that the executable is gone.
 
 `--smoke-test` opens the real native renderer, verifies a nonblank rendered frame,
 and exits. The separate product-validation job renders an actual externally

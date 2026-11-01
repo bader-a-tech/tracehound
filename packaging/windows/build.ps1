@@ -22,6 +22,42 @@ function Find-Wix([string]$Name) {
   if (-not $found) { throw "WiX3 $Name.exe is required; the native Windows hosted runner provides it. No tools are installed by this script." }
   return $found
 }
+function Set-HarvestedFileIdentities([string]$Path) {
+  # Per-user file components use an HKCU registry keypath. WiX cannot generate
+  # a GUID for that combination, so derive both identities from the installed
+  # relative path, independent of the checkout directory and heat's element IDs.
+  $document = [Xml.XmlDocument]::new()
+  $document.PreserveWhitespace = $true
+  $document.Load($Path)
+  $namespaces = [Xml.XmlNamespaceManager]::new($document.NameTable)
+  $namespaces.AddNamespace('wix', 'http://schemas.microsoft.com/wix/2006/wi')
+  $components = @($document.SelectNodes('//wix:Component[wix:File]', $namespaces))
+  if ($components.Count -eq 0) { throw 'The harvested package contains no file components' }
+  $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  $prefix = '$(var.StageDir)\'
+  foreach ($component in $components) {
+    $files = @($component.SelectNodes('wix:File', $namespaces))
+    if ($files.Count -ne 1) { throw 'Each harvested file must have its own component' }
+    $source = $files[0].GetAttribute('Source').Replace('/', '\')
+    if (-not $source.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'A harvested file source is outside the staged relative prefix'
+    }
+    $relative = $source.Substring($prefix.Length).ToLowerInvariant()
+    if ($relative.Split('\') | Where-Object { $_ -in @('', '.', '..') }) {
+      throw 'A harvested file source has an invalid relative path'
+    }
+    if (-not $seen.Add($relative)) { throw 'Duplicate harvested file path' }
+    $digest = [Security.Cryptography.SHA256]::HashData(
+      [Text.Encoding]::UTF8.GetBytes('Tracehound per-user file component v1:' + $relative))
+    $component.SetAttribute('Guid', ([Guid]::new([byte[]]$digest[0..15])).ToString('D'))
+    $keys = @($component.SelectNodes("wix:RegistryValue[@Root='HKCU' and @Key='Software\Tracehound\Components' and @KeyPath='yes']", $namespaces))
+    if ($keys.Count -ne 1) { throw 'A harvested file component lacks its private HKCU keypath' }
+    $keys[0].SetAttribute('Name', 'file_' + [Convert]::ToHexString($digest).ToLowerInvariant())
+  }
+  # Directory cleanup components contain only registry values and keep WiX's
+  # supported automatic GUID generation.
+  $document.Save($Path)
+}
 $certificate = $null
 $certificateWasPresent = $false
 $pfx = $null
@@ -62,7 +98,8 @@ try {
   ('{\rtf1\ansi\deff0{\fonttbl{\f0 Segoe UI;}}\f0\fs20 ' + $escaped + '}') | Set-Content -LiteralPath $rtf -Encoding ascii
   $heat = Find-Wix 'heat'; $candle = Find-Wix 'candle'; $light = Find-Wix 'light'
   $harvest = Join-Path $work 'Files.wxs'
-  Invoke-Checked $heat @('dir', $stage, '-nologo', '-ag', '-sfrag', '-srd', '-cg', 'AppFiles', '-dr', 'INSTALLFOLDER', '-var', 'var.StageDir', '-t', (Join-Path $PSScriptRoot 'PerUserComponents.xsl'), '-out', $harvest)
+  Invoke-Checked $heat @('dir', $stage, '-nologo', '-ag', '-sfrag', '-srd', '-sreg', '-scom', '-cg', 'AppFiles', '-dr', 'INSTALLFOLDER', '-var', 'var.StageDir', '-t', (Join-Path $PSScriptRoot 'PerUserComponents.xsl'), '-out', $harvest)
+  Set-HarvestedFileIdentities $harvest
   $product = Join-Path $PSScriptRoot 'Product.wxs'
   $packageVersion = $Version.Split('-')[0]
   Invoke-Checked $candle @('-nologo', '-arch', 'x64', "-dStageDir=$stage", "-dPackageVersion=$packageVersion", "-dLicenseFile=$rtf", '-out', ($work + [IO.Path]::DirectorySeparatorChar), $product, $harvest)

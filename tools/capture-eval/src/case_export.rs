@@ -440,7 +440,7 @@ fn export_host_opened(
         } else {
             None
         };
-        let document=HostDocument{schema_version:1,mode:"host_investigation",overview:case.overview(),host,events:&events,events_truncated:truncated,packets_included:capture.is_some(),packet_numbers:&numbers,packets_truncated,supporting_evidence_truncated,notes:vec!["An IP address in a capture is not proof of a persistent device identity; NAT, DHCP and capture interfaces can affect attribution.","Packet facts have original frame references. Contextual/time-window associations do not establish causation.","The JSON and HTML can contain addresses, domains and other capture metadata even when packet bytes are excluded."]};
+        let document=HostDocument{schema_version:1,mode:"host_investigation",overview:case.overview(),host,events:&events,events_truncated:truncated,packets_included:capture.is_some(),packet_numbers:&numbers,packets_truncated,supporting_evidence_truncated,notes:vec!["An IP address in a capture is not proof of a persistent device identity; NAT, DHCP and capture interfaces can affect attribution.","Packet facts have original frame references. Contextual/time-window associations do not establish causation.","Included packets are retained event references, not a complete capture of every packet involving this host.","The JSON and HTML can contain addresses, domains and other capture metadata even when packet bytes are excluded."]};
         let json_path = destination.join("investigation.json");
         crate::store::write_new(&json_path, &document)?;
         let html_path = destination.join("investigation.html");

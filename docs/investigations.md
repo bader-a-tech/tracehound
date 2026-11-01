@@ -82,7 +82,9 @@ tracehound-eval case-export office.db 10.0.0.42 host-report --include-packets --
 
 A host export creates `investigation.html`, `investigation.json`, and
 `SHA256SUMS.txt` in a new directory. `--include-packets` explicitly adds
-`evidence.pcapng`; packet bytes are excluded by default. The HTML is standalone,
+`evidence.pcapng`; packet bytes are excluded by default. Included packets are the
+union of retained event references, rather than all traffic involving that host.
+The HTML is standalone,
 escaped, and contains no scripts or remote assets. Exports are limited to 10,000
 events and 10,000 selected frames, with truncation recorded. Existing output
 files and directories are preserved.

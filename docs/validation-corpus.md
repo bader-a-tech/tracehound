@@ -88,6 +88,9 @@ The local Rust run matched all 4 reviewed positive behaviours: `TH-0001` 2/2,
 `TH-0002` 1/1, and `TH-0004` 1/1. All 6 labelled default cases passed with no
 unexpected or explicitly benign findings; the seventh case is observation only.
 Those counts cover this small supplied label set, not general malware recall.
+The [published JSON summary](benchmarks/corpus-v0.6.0.json) records the Windows
+candidate's source revision, executable/manifest hashes, case counts, measurements,
+and source-backed exposure assumptions without packet bytes or local capture paths.
 
 The extended P2P case deliberately retains an important negative result. It
 produced 18 unexpected unique `TH-0001` findings, 36 alert records, from the

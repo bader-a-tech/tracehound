@@ -1,0 +1,1268 @@
+{
+  "schema_version": 1,
+  "mode": "published_corpus_validation_summary",
+  "source_revision": "8f030b25a90be1564669c1fc16bc029854adcba1",
+  "application_version": "0.6.0",
+  "executed_on": "2026-11-01",
+  "platform": "windows",
+  "engine": {
+    "dns_global_name_budget": 65536,
+    "engine": "rust-stream",
+    "engine_version": "0.6.0",
+    "fingerprint_users_retained": 2,
+    "limits": {
+      "flow_idle_ms": 120000,
+      "max_alert_records": 1000000,
+      "max_beacon_tracks": 20000,
+      "max_devices": 20000,
+      "max_evidence_packets": 128,
+      "max_findings": 20000,
+      "max_fingerprints": 20000,
+      "max_flows": 20000,
+      "max_probes_per_source": 4096,
+      "max_scan_sources": 2000,
+      "max_starts_per_track": 512,
+      "tick_ms": 1000
+    },
+    "local_live": false,
+    "public_suffix_list": "psl-crate-embedded",
+    "rule_pack_mode": "replacement_present_rules",
+    "rule_pack_sha256": "81065971b8eb031c58dc7ad3f25cd27fd183202ef94e36a1babafaff9e865c25",
+    "tls_client_scope": "completed_client_hello"
+  },
+  "executable_sha256": "4db2329c962e4e07a38beca20a26e384176f7cae8910a4a1e3ffa2fdfdad0765",
+  "default_manifest_sha256": "9fc1ca77509ea53c806f0057d5318ea0d2e310f197fc26dc0847fdf8d63f81d9",
+  "extended_manifest_sha256": "965c07cfc19ac17f076a26103efb22c02f90e640fe170e97ef0f635a39c9813a",
+  "default": {
+    "sources": [
+      {
+        "id": "ctu-normal-dns",
+        "sha256": "7fbefbe1a18867bc683f59890cbc0124e5f6166e5aa13035fcf1ccf2f06f7ae4",
+        "bytes": 772961,
+        "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-4-only-DNS/README.md",
+        "classification": "publisher-labelled normal traffic",
+        "license": "Publisher-provided research capture; no capture bytes redistributed by this project. See source terms.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-periodic-c2",
+        "sha256": "2276e5ac0303296b71d3363c6e844cd94adcac6b256d2b2d4b1c7aa3ccaed035",
+        "bytes": 2072846,
+        "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-1-pcap",
+        "classification": "controlled periodic network capture",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": "147.32.0.0/16",
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-malware-sweep",
+        "sha256": "cd864709778a7449955671315d1ccc3c6694bb120732c6f60fa9ba01e5c962cb",
+        "bytes": 339844,
+        "source_url": "https://github.com/stratosphereips/StratosphereLinuxIPS/tree/b5061a961b8348353070e168e8ea3c9101961f4b/dataset",
+        "classification": "upstream malicious traffic with independently verified sweep label",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "ctu-normal-web",
+        "sha256": "ebd495484e66dea49a7ff95f9ae7415b6a51a963713014ac0e822d2828afb2c7",
+        "bytes": 506351,
+        "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-13/README.html",
+        "classification": "publisher-labelled normal web/TLS traffic",
+        "license": "Publisher permits use with citation to Garcia, Sebastian, Malware Capture Facility Project, Stratosphere IPS. Downloaded locally; no capture bytes redistributed.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-jittered-c2",
+        "sha256": "03e3e0b3e47fcb8801870fc00fd8f7e8f1924bb5398c4ecf28f811eaaf62cdbc",
+        "bytes": 264119,
+        "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-2-pcap",
+        "classification": "controlled semi-periodic network capture",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": "147.32.0.0/16",
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-malware-observation-8",
+        "sha256": "191da8b6eba7846750df8b8d2dbca9664cabdcce0f51978349de5c764e3e6361",
+        "bytes": 31513,
+        "source_url": "https://github.com/stratosphereips/StratosphereLinuxIPS/tree/b5061a961b8348353070e168e8ea3c9101961f4b/dataset",
+        "classification": "publisher malicious traffic; observation only without reviewed rule-level labels",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "graphtunnel-dnscat2-mx",
+        "sha256": "e035355338ff4e432ce7c15d39947bd3e254c20f01b90e1272b4f645b0201be2",
+        "bytes": 13012503,
+        "source_url": "https://github.com/ggyggy666/DNS-Tunnel-Datasets/blob/e3dccb8a9481cc984592bcc6a018a376dc8e5fac/README.md",
+        "classification": "independent researcher-captured DNS tunnel with reviewed positive label",
+        "license": "Publisher research dataset requests citation to GraphTunnel: Robust DNS Tunnel Detection Based on DNS Recursive Resolution Graph. Capture downloaded locally; no bytes redistributed.",
+        "home_nets": "192.168.68.0/24",
+        "benign_exposure": []
+      }
+    ],
+    "passed": true,
+    "summary": {
+      "benign_findings": 0,
+      "captures": 6,
+      "expected_total": 4,
+      "failed": 0,
+      "matched_expectations": 4,
+      "matched_findings": 4,
+      "missed_expectations": 0,
+      "passed": 6,
+      "precision": 1.0,
+      "recall": 1.0,
+      "unexpected_findings": 0,
+      "unique_findings": 4
+    },
+    "cases": [
+      {
+        "name": "ctu-normal-dns",
+        "passed": true,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 0,
+          "matched_expectations": 0,
+          "matched_findings": 0,
+          "missed_expectations": 0,
+          "precision": null,
+          "recall": null,
+          "unexpected_findings": 0,
+          "unique_findings": 0
+        },
+        "findings": []
+      },
+      {
+        "name": "stratosphere-periodic-c2",
+        "passed": true,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0001",
+            "severity": "high",
+            "src": "147.32.80.37",
+            "dst": "141.193.213.21",
+            "occurrences": 3,
+            "score": null,
+            "evidence": {
+              "connections": 287,
+              "interval_cv": 0.093,
+              "interval_mad_ratio": 0.006,
+              "interval_mean_s": 2.248,
+              "jitter_pct": 9.26,
+              "mean_bytes_to_server": 1731.853,
+              "periodicity_score": 0.994,
+              "size_consistency": 0.964
+            }
+          }
+        ]
+      },
+      {
+        "name": "stratosphere-malware-sweep",
+        "passed": true,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0004",
+            "severity": "medium",
+            "src": "192.168.2.16",
+            "dst": null,
+            "occurrences": 1,
+            "score": null,
+            "evidence": {
+              "answered_pct": 0.0,
+              "hosts_probed": 25,
+              "port": 23,
+              "responded": 0,
+              "scan_type": "horizontal",
+              "window_end_ms": 1520629136780,
+              "window_start_ms": 1520629070781
+            }
+          }
+        ]
+      },
+      {
+        "name": "ctu-normal-web",
+        "passed": true,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 0,
+          "matched_expectations": 0,
+          "matched_findings": 0,
+          "missed_expectations": 0,
+          "precision": null,
+          "recall": null,
+          "unexpected_findings": 0,
+          "unique_findings": 0
+        },
+        "findings": []
+      },
+      {
+        "name": "stratosphere-jittered-c2",
+        "passed": true,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "147.32.80.37",
+            "dst": "141.193.213.20",
+            "occurrences": 1,
+            "score": null,
+            "evidence": {
+              "connections": 8,
+              "interval_cv": 0.127,
+              "interval_mad_ratio": 0.117,
+              "interval_mean_s": 3.2,
+              "jitter_pct": 12.689,
+              "mean_bytes_to_server": 1754.143,
+              "periodicity_score": 0.883,
+              "size_consistency": 0.948
+            }
+          }
+        ]
+      },
+      {
+        "name": "graphtunnel-dnscat2-mx",
+        "passed": true,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0002",
+            "severity": "medium",
+            "src": "192.168.68.62",
+            "dst": "192.168.68.1",
+            "occurrences": 1,
+            "score": 0.711,
+            "evidence": {
+              "avg_entropy_bits": 3.823,
+              "avg_subdomain_len": 54.5,
+              "domain": "ggy666.tk",
+              "max_subdomain_len": 223,
+              "name_retention_limited": false,
+              "public_suffix_list": "psl-crate-embedded",
+              "queries": 46,
+              "queries_per_min": 92.237,
+              "score_upper_bound": 0.711,
+              "txt_null_ratio": 0.0,
+              "unique_names": 46,
+              "unique_ratio": 1.0,
+              "unique_ratio_is_lower_bound": false,
+              "unique_ratio_upper_bound": 1.0
+            }
+          }
+        ]
+      }
+    ],
+    "observations": [
+      {
+        "mode": "observation_only",
+        "total_alerts": 0,
+        "unique_findings": 0,
+        "accuracy": "unknown"
+      }
+    ],
+    "validation": {
+      "interpretation": [
+        "Recall applies only to the supplied labelled behaviours for each rule, not all attacks in the traces or field malware recall.",
+        "Benign rates use only explicitly reviewed whole-capture monitored host windows and their declared observable rule scope; idle activity is not inferred from packet timestamps.",
+        "Repeated alert records and unique finding groups are reported separately. Neither host-hour rate is a true-negative-based false-positive probability.",
+        "Missing or unreviewed exposure produces null rates. Capture coverage, policy, severity floor, and stated source assumptions limit comparisons."
+      ],
+      "labelled_cases": 6,
+      "observation_only_cases": 1,
+      "per_rule": [
+        {
+          "benign_alert_records_per_host_hour": null,
+          "benign_unique_findings_per_host_hour": null,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [],
+          "labelled_behaviours": 2,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": 1.0,
+          "matched_behaviours": 2,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": null,
+          "rule_id": "TH-0001",
+          "unexpected_unique_findings": 0
+        },
+        {
+          "benign_alert_records_per_host_hour": null,
+          "benign_unique_findings_per_host_hour": null,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [],
+          "labelled_behaviours": 1,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": 1.0,
+          "matched_behaviours": 1,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": null,
+          "rule_id": "TH-0002",
+          "unexpected_unique_findings": 0
+        },
+        {
+          "benign_alert_records_per_host_hour": null,
+          "benign_unique_findings_per_host_hour": null,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [],
+          "labelled_behaviours": 1,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": 1.0,
+          "matched_behaviours": 1,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": null,
+          "rule_id": "TH-0004",
+          "unexpected_unique_findings": 0
+        }
+      ],
+      "schema_version": 1
+    }
+  },
+  "extended": {
+    "sources": [
+      {
+        "id": "ctu-normal-dns",
+        "sha256": "7fbefbe1a18867bc683f59890cbc0124e5f6166e5aa13035fcf1ccf2f06f7ae4",
+        "bytes": 772961,
+        "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-4-only-DNS/README.md",
+        "classification": "publisher-labelled normal traffic",
+        "license": "Publisher-provided research capture; no capture bytes redistributed by this project. See source terms.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-periodic-c2",
+        "sha256": "2276e5ac0303296b71d3363c6e844cd94adcac6b256d2b2d4b1c7aa3ccaed035",
+        "bytes": 2072846,
+        "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-1-pcap",
+        "classification": "controlled periodic network capture",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": "147.32.0.0/16",
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-malware-sweep",
+        "sha256": "cd864709778a7449955671315d1ccc3c6694bb120732c6f60fa9ba01e5c962cb",
+        "bytes": 339844,
+        "source_url": "https://github.com/stratosphereips/StratosphereLinuxIPS/tree/b5061a961b8348353070e168e8ea3c9101961f4b/dataset",
+        "classification": "upstream malicious traffic with independently verified sweep label",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "ctu-normal-web",
+        "sha256": "ebd495484e66dea49a7ff95f9ae7415b6a51a963713014ac0e822d2828afb2c7",
+        "bytes": 506351,
+        "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-13/README.html",
+        "classification": "publisher-labelled normal web/TLS traffic",
+        "license": "Publisher permits use with citation to Garcia, Sebastian, Malware Capture Facility Project, Stratosphere IPS. Downloaded locally; no capture bytes redistributed.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-jittered-c2",
+        "sha256": "03e3e0b3e47fcb8801870fc00fd8f7e8f1924bb5398c4ecf28f811eaaf62cdbc",
+        "bytes": 264119,
+        "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-2-pcap",
+        "classification": "controlled semi-periodic network capture",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": "147.32.0.0/16",
+        "benign_exposure": []
+      },
+      {
+        "id": "stratosphere-malware-observation-8",
+        "sha256": "191da8b6eba7846750df8b8d2dbca9664cabdcce0f51978349de5c764e3e6361",
+        "bytes": 31513,
+        "source_url": "https://github.com/stratosphereips/StratosphereLinuxIPS/tree/b5061a961b8348353070e168e8ea3c9101961f4b/dataset",
+        "classification": "publisher malicious traffic; observation only without reviewed rule-level labels",
+        "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+        "home_nets": null,
+        "benign_exposure": []
+      },
+      {
+        "id": "ctu-normal-p2p",
+        "sha256": "9daf9c1746dae37a234bac32090e8bc925e837af78cfffc3b4cc7c46d901542b",
+        "bytes": 417195191,
+        "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/README.html",
+        "classification": "publisher-verified normal P2P/web/messaging traffic",
+        "license": "Publisher-provided research capture; no capture bytes redistributed by this project. Cite Garcia, Sebastian, Malware Capture Facility Project, Stratosphere IPS.",
+        "home_nets": "10.0.0.0/24",
+        "benign_exposure": [
+          {
+            "assumptions": [
+              "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+              "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+              "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+              "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+            ],
+            "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+            "host": "10.0.0.46",
+            "monitored_seconds": 1282.0,
+            "rule_ids": [
+              "TH-0001",
+              "TH-0002",
+              "TH-0003",
+              "TH-0004",
+              "TH-0005",
+              "TH-0007"
+            ],
+            "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+          }
+        ]
+      },
+      {
+        "id": "graphtunnel-dnscat2-mx",
+        "sha256": "e035355338ff4e432ce7c15d39947bd3e254c20f01b90e1272b4f645b0201be2",
+        "bytes": 13012503,
+        "source_url": "https://github.com/ggyggy666/DNS-Tunnel-Datasets/blob/e3dccb8a9481cc984592bcc6a018a376dc8e5fac/README.md",
+        "classification": "independent researcher-captured DNS tunnel with reviewed positive label",
+        "license": "Publisher research dataset requests citation to GraphTunnel: Robust DNS Tunnel Detection Based on DNS Recursive Resolution Graph. Capture downloaded locally; no bytes redistributed.",
+        "home_nets": "192.168.68.0/24",
+        "benign_exposure": []
+      }
+    ],
+    "passed": false,
+    "summary": {
+      "benign_findings": 18,
+      "captures": 7,
+      "expected_total": 4,
+      "failed": 1,
+      "matched_expectations": 4,
+      "matched_findings": 4,
+      "missed_expectations": 0,
+      "passed": 6,
+      "precision": 0.18181818181818182,
+      "recall": 1.0,
+      "unexpected_findings": 18,
+      "unique_findings": 22
+    },
+    "cases": [
+      {
+        "name": "ctu-normal-dns",
+        "passed": true,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 0,
+          "matched_expectations": 0,
+          "matched_findings": 0,
+          "missed_expectations": 0,
+          "precision": null,
+          "recall": null,
+          "unexpected_findings": 0,
+          "unique_findings": 0
+        },
+        "findings": []
+      },
+      {
+        "name": "stratosphere-periodic-c2",
+        "passed": true,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0001",
+            "severity": "high",
+            "src": "147.32.80.37",
+            "dst": "141.193.213.21",
+            "occurrences": 3,
+            "score": null,
+            "evidence": {
+              "connections": 287,
+              "interval_cv": 0.093,
+              "interval_mad_ratio": 0.006,
+              "interval_mean_s": 2.248,
+              "jitter_pct": 9.26,
+              "mean_bytes_to_server": 1731.853,
+              "periodicity_score": 0.994,
+              "size_consistency": 0.964
+            }
+          }
+        ]
+      },
+      {
+        "name": "stratosphere-malware-sweep",
+        "passed": true,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0004",
+            "severity": "medium",
+            "src": "192.168.2.16",
+            "dst": null,
+            "occurrences": 1,
+            "score": null,
+            "evidence": {
+              "answered_pct": 0.0,
+              "hosts_probed": 25,
+              "port": 23,
+              "responded": 0,
+              "scan_type": "horizontal",
+              "window_end_ms": 1520629136780,
+              "window_start_ms": 1520629070781
+            }
+          }
+        ]
+      },
+      {
+        "name": "ctu-normal-web",
+        "passed": true,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 0,
+          "matched_expectations": 0,
+          "matched_findings": 0,
+          "missed_expectations": 0,
+          "precision": null,
+          "recall": null,
+          "unexpected_findings": 0,
+          "unique_findings": 0
+        },
+        "findings": []
+      },
+      {
+        "name": "stratosphere-jittered-c2",
+        "passed": true,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "147.32.80.37",
+            "dst": "141.193.213.20",
+            "occurrences": 1,
+            "score": null,
+            "evidence": {
+              "connections": 8,
+              "interval_cv": 0.127,
+              "interval_mad_ratio": 0.117,
+              "interval_mean_s": 3.2,
+              "jitter_pct": 12.689,
+              "mean_bytes_to_server": 1754.143,
+              "periodicity_score": 0.883,
+              "size_consistency": 0.948
+            }
+          }
+        ]
+      },
+      {
+        "name": "ctu-normal-p2p",
+        "passed": false,
+        "summary": {
+          "benign_findings": 18,
+          "expected_total": 0,
+          "matched_expectations": 0,
+          "matched_findings": 0,
+          "missed_expectations": 0,
+          "precision": 0.0,
+          "recall": null,
+          "unexpected_findings": 18,
+          "unique_findings": 18
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "1.34.38.64",
+            "occurrences": 2,
+            "score": null,
+            "evidence": {
+              "connections": 17,
+              "interval_cv": 0.089,
+              "interval_mad_ratio": 0.083,
+              "interval_mean_s": 66.741,
+              "jitter_pct": 8.932,
+              "mean_bytes_to_server": 817.75,
+              "periodicity_score": 0.917,
+              "size_consistency": 0.392
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "8.8.8.8",
+            "occurrences": 1,
+            "score": null,
+            "evidence": {
+              "connections": 14,
+              "interval_cv": 2.569,
+              "interval_mad_ratio": 0.105,
+              "interval_mean_s": 11.942,
+              "jitter_pct": 256.942,
+              "mean_bytes_to_server": 160.0,
+              "periodicity_score": 0.895,
+              "size_consistency": 0.5
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "high",
+            "src": "10.0.0.46",
+            "dst": "37.48.64.105",
+            "occurrences": 3,
+            "score": null,
+            "evidence": {
+              "connections": 20,
+              "interval_cv": 0.005,
+              "interval_mad_ratio": 0.0,
+              "interval_mean_s": 60.153,
+              "jitter_pct": 0.505,
+              "mean_bytes_to_server": 74.0,
+              "periodicity_score": 1.0,
+              "size_consistency": 1.0
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "high",
+            "src": "10.0.0.46",
+            "dst": "37.48.64.106",
+            "occurrences": 3,
+            "score": null,
+            "evidence": {
+              "connections": 20,
+              "interval_cv": 0.017,
+              "interval_mad_ratio": 0.0,
+              "interval_mean_s": 60.364,
+              "jitter_pct": 1.68,
+              "mean_bytes_to_server": 74.0,
+              "periodicity_score": 1.0,
+              "size_consistency": 1.0
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "78.26.20.251",
+            "occurrences": 1,
+            "score": null,
+            "evidence": {
+              "connections": 8,
+              "interval_cv": 0.024,
+              "interval_mad_ratio": 0.016,
+              "interval_mean_s": 125.162,
+              "jitter_pct": 2.393,
+              "mean_bytes_to_server": 211.429,
+              "periodicity_score": 0.984,
+              "size_consistency": 0.776
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "82.119.8.68",
+            "occurrences": 2,
+            "score": null,
+            "evidence": {
+              "connections": 17,
+              "interval_cv": 0.032,
+              "interval_mad_ratio": 0.008,
+              "interval_mean_s": 61.453,
+              "jitter_pct": 3.221,
+              "mean_bytes_to_server": 74.0,
+              "periodicity_score": 0.992,
+              "size_consistency": 1.0
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "high",
+            "src": "10.0.0.46",
+            "dst": "85.17.73.215",
+            "occurrences": 3,
+            "score": null,
+            "evidence": {
+              "connections": 20,
+              "interval_cv": 0.023,
+              "interval_mad_ratio": 0.0,
+              "interval_mean_s": 60.601,
+              "jitter_pct": 2.269,
+              "mean_bytes_to_server": 74.0,
+              "periodicity_score": 1.0,
+              "size_consistency": 1.0
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "high",
+            "src": "10.0.0.46",
+            "dst": "85.17.73.216",
+            "occurrences": 3,
+            "score": null,
+            "evidence": {
+              "connections": 20,
+              "interval_cv": 0.005,
+              "interval_mad_ratio": 0.0,
+              "interval_mean_s": 60.153,
+              "jitter_pct": 0.505,
+              "mean_bytes_to_server": 74.0,
+              "periodicity_score": 1.0,
+              "size_consistency": 1.0
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "high",
+            "src": "10.0.0.46",
+            "dst": "88.171.246.178",
+            "occurrences": 3,
+            "score": null,
+            "evidence": {
+              "connections": 20,
+              "interval_cv": 0.005,
+              "interval_mad_ratio": 0.0,
+              "interval_mean_s": 60.153,
+              "jitter_pct": 0.506,
+              "mean_bytes_to_server": 74.0,
+              "periodicity_score": 1.0,
+              "size_consistency": 1.0
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "high",
+            "src": "10.0.0.46",
+            "dst": "92.229.205.157",
+            "occurrences": 3,
+            "score": null,
+            "evidence": {
+              "connections": 20,
+              "interval_cv": 0.004,
+              "interval_mad_ratio": 0.0,
+              "interval_mean_s": 60.101,
+              "jitter_pct": 0.369,
+              "mean_bytes_to_server": 74.0,
+              "periodicity_score": 1.0,
+              "size_consistency": 1.0
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "94.123.177.231",
+            "occurrences": 1,
+            "score": null,
+            "evidence": {
+              "connections": 8,
+              "interval_cv": 0.379,
+              "interval_mad_ratio": 0.016,
+              "interval_mean_s": 55.25,
+              "jitter_pct": 37.892,
+              "mean_bytes_to_server": 209.667,
+              "periodicity_score": 0.984,
+              "size_consistency": 0.868
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "95.139.120.213",
+            "occurrences": 1,
+            "score": null,
+            "evidence": {
+              "connections": 8,
+              "interval_cv": 0.4,
+              "interval_mad_ratio": 0.0,
+              "interval_mean_s": 52.248,
+              "jitter_pct": 40.049,
+              "mean_bytes_to_server": 74.0,
+              "periodicity_score": 1.0,
+              "size_consistency": 1.0
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "110.20.170.10",
+            "occurrences": 2,
+            "score": null,
+            "evidence": {
+              "connections": 16,
+              "interval_cv": 0.018,
+              "interval_mad_ratio": 0.0,
+              "interval_mean_s": 71.522,
+              "jitter_pct": 1.835,
+              "mean_bytes_to_server": 858.813,
+              "periodicity_score": 1.0,
+              "size_consistency": 0.379
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "111.253.136.152",
+            "occurrences": 2,
+            "score": null,
+            "evidence": {
+              "connections": 16,
+              "interval_cv": 0.097,
+              "interval_mad_ratio": 0.017,
+              "interval_mean_s": 66.652,
+              "jitter_pct": 9.711,
+              "mean_bytes_to_server": 801.375,
+              "periodicity_score": 0.983,
+              "size_consistency": 0.423
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "123.194.198.20",
+            "occurrences": 2,
+            "score": null,
+            "evidence": {
+              "connections": 16,
+              "interval_cv": 0.073,
+              "interval_mad_ratio": 0.001,
+              "interval_mean_s": 68.787,
+              "jitter_pct": 7.256,
+              "mean_bytes_to_server": 813.063,
+              "periodicity_score": 0.999,
+              "size_consistency": 0.451
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "201.92.182.173",
+            "occurrences": 1,
+            "score": null,
+            "evidence": {
+              "connections": 8,
+              "interval_cv": 0.4,
+              "interval_mad_ratio": 0.0,
+              "interval_mean_s": 52.248,
+              "jitter_pct": 40.049,
+              "mean_bytes_to_server": 74.0,
+              "periodicity_score": 1.0,
+              "size_consistency": 1.0
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "217.25.237.11",
+            "occurrences": 2,
+            "score": null,
+            "evidence": {
+              "connections": 12,
+              "interval_cv": 0.427,
+              "interval_mad_ratio": 0.0,
+              "interval_mean_s": 87.167,
+              "jitter_pct": 42.667,
+              "mean_bytes_to_server": 74.0,
+              "periodicity_score": 1.0,
+              "size_consistency": 1.0
+            }
+          },
+          {
+            "rule_id": "TH-0001",
+            "severity": "medium",
+            "src": "10.0.0.46",
+            "dst": "221.118.146.13",
+            "occurrences": 1,
+            "score": null,
+            "evidence": {
+              "connections": 8,
+              "interval_cv": 0.334,
+              "interval_mad_ratio": 0.016,
+              "interval_mean_s": 57.109,
+              "jitter_pct": 33.353,
+              "mean_bytes_to_server": 758.429,
+              "periodicity_score": 0.984,
+              "size_consistency": 0.352
+            }
+          }
+        ]
+      },
+      {
+        "name": "graphtunnel-dnscat2-mx",
+        "passed": true,
+        "summary": {
+          "benign_findings": 0,
+          "expected_total": 1,
+          "matched_expectations": 1,
+          "matched_findings": 1,
+          "missed_expectations": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "unexpected_findings": 0,
+          "unique_findings": 1
+        },
+        "findings": [
+          {
+            "rule_id": "TH-0002",
+            "severity": "medium",
+            "src": "192.168.68.62",
+            "dst": "192.168.68.1",
+            "occurrences": 1,
+            "score": 0.711,
+            "evidence": {
+              "avg_entropy_bits": 3.823,
+              "avg_subdomain_len": 54.5,
+              "domain": "ggy666.tk",
+              "max_subdomain_len": 223,
+              "name_retention_limited": false,
+              "public_suffix_list": "psl-crate-embedded",
+              "queries": 46,
+              "queries_per_min": 92.237,
+              "score_upper_bound": 0.711,
+              "txt_null_ratio": 0.0,
+              "unique_names": 46,
+              "unique_ratio": 1.0,
+              "unique_ratio_is_lower_bound": false,
+              "unique_ratio_upper_bound": 1.0
+            }
+          }
+        ]
+      }
+    ],
+    "observations": [
+      {
+        "mode": "observation_only",
+        "total_alerts": 0,
+        "unique_findings": 0,
+        "accuracy": "unknown"
+      }
+    ],
+    "validation": {
+      "interpretation": [
+        "Recall applies only to the supplied labelled behaviours for each rule, not all attacks in the traces or field malware recall.",
+        "Benign rates use only explicitly reviewed whole-capture monitored host windows and their declared observable rule scope; idle activity is not inferred from packet timestamps.",
+        "Repeated alert records and unique finding groups are reported separately. Neither host-hour rate is a true-negative-based false-positive probability.",
+        "Missing or unreviewed exposure produces null rates. Capture coverage, policy, severity floor, and stated source assumptions limit comparisons."
+      ],
+      "labelled_cases": 7,
+      "observation_only_cases": 1,
+      "per_rule": [
+        {
+          "benign_alert_records_per_host_hour": 101.09204368174727,
+          "benign_unique_findings_per_host_hour": 50.546021840873635,
+          "exposure_benign_alert_records": 36,
+          "exposure_benign_unique_findings": 18,
+          "exposure_cases": [
+            {
+              "assumptions": [
+                "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+                "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+                "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+                "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+              ],
+              "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+              "case_id": "ctu-normal-p2p",
+              "host": "10.0.0.46",
+              "monitored_seconds": 1282.0,
+              "rule_ids": [
+                "TH-0001",
+                "TH-0002",
+                "TH-0003",
+                "TH-0004",
+                "TH-0005",
+                "TH-0007"
+              ],
+              "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+            }
+          ],
+          "labelled_behaviours": 2,
+          "labelled_benign_alert_records": 36,
+          "labelled_benign_unique_findings": 18,
+          "labelled_recall": 1.0,
+          "matched_behaviours": 2,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": 0.3561111111111111,
+          "rule_id": "TH-0001",
+          "unexpected_unique_findings": 18
+        },
+        {
+          "benign_alert_records_per_host_hour": 0.0,
+          "benign_unique_findings_per_host_hour": 0.0,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [
+            {
+              "assumptions": [
+                "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+                "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+                "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+                "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+              ],
+              "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+              "case_id": "ctu-normal-p2p",
+              "host": "10.0.0.46",
+              "monitored_seconds": 1282.0,
+              "rule_ids": [
+                "TH-0001",
+                "TH-0002",
+                "TH-0003",
+                "TH-0004",
+                "TH-0005",
+                "TH-0007"
+              ],
+              "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+            }
+          ],
+          "labelled_behaviours": 1,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": 1.0,
+          "matched_behaviours": 1,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": 0.3561111111111111,
+          "rule_id": "TH-0002",
+          "unexpected_unique_findings": 0
+        },
+        {
+          "benign_alert_records_per_host_hour": 0.0,
+          "benign_unique_findings_per_host_hour": 0.0,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [
+            {
+              "assumptions": [
+                "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+                "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+                "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+                "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+              ],
+              "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+              "case_id": "ctu-normal-p2p",
+              "host": "10.0.0.46",
+              "monitored_seconds": 1282.0,
+              "rule_ids": [
+                "TH-0001",
+                "TH-0002",
+                "TH-0003",
+                "TH-0004",
+                "TH-0005",
+                "TH-0007"
+              ],
+              "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+            }
+          ],
+          "labelled_behaviours": 0,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": null,
+          "matched_behaviours": 0,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": 0.3561111111111111,
+          "rule_id": "TH-0003",
+          "unexpected_unique_findings": 0
+        },
+        {
+          "benign_alert_records_per_host_hour": 0.0,
+          "benign_unique_findings_per_host_hour": 0.0,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [
+            {
+              "assumptions": [
+                "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+                "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+                "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+                "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+              ],
+              "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+              "case_id": "ctu-normal-p2p",
+              "host": "10.0.0.46",
+              "monitored_seconds": 1282.0,
+              "rule_ids": [
+                "TH-0001",
+                "TH-0002",
+                "TH-0003",
+                "TH-0004",
+                "TH-0005",
+                "TH-0007"
+              ],
+              "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+            }
+          ],
+          "labelled_behaviours": 1,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": 1.0,
+          "matched_behaviours": 1,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": 0.3561111111111111,
+          "rule_id": "TH-0004",
+          "unexpected_unique_findings": 0
+        },
+        {
+          "benign_alert_records_per_host_hour": 0.0,
+          "benign_unique_findings_per_host_hour": 0.0,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [
+            {
+              "assumptions": [
+                "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+                "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+                "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+                "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+              ],
+              "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+              "case_id": "ctu-normal-p2p",
+              "host": "10.0.0.46",
+              "monitored_seconds": 1282.0,
+              "rule_ids": [
+                "TH-0001",
+                "TH-0002",
+                "TH-0003",
+                "TH-0004",
+                "TH-0005",
+                "TH-0007"
+              ],
+              "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+            }
+          ],
+          "labelled_behaviours": 0,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": null,
+          "matched_behaviours": 0,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": 0.3561111111111111,
+          "rule_id": "TH-0005",
+          "unexpected_unique_findings": 0
+        },
+        {
+          "benign_alert_records_per_host_hour": 0.0,
+          "benign_unique_findings_per_host_hour": 0.0,
+          "exposure_benign_alert_records": 0,
+          "exposure_benign_unique_findings": 0,
+          "exposure_cases": [
+            {
+              "assumptions": [
+                "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+                "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+                "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+                "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+              ],
+              "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+              "case_id": "ctu-normal-p2p",
+              "host": "10.0.0.46",
+              "monitored_seconds": 1282.0,
+              "rule_ids": [
+                "TH-0001",
+                "TH-0002",
+                "TH-0003",
+                "TH-0004",
+                "TH-0005",
+                "TH-0007"
+              ],
+              "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos"
+            }
+          ],
+          "labelled_behaviours": 0,
+          "labelled_benign_alert_records": 0,
+          "labelled_benign_unique_findings": 0,
+          "labelled_recall": null,
+          "matched_behaviours": 0,
+          "missed_behaviours": 0,
+          "monitored_benign_host_hours": 0.3561111111111111,
+          "rule_id": "TH-0007",
+          "unexpected_unique_findings": 0
+        }
+      ],
+      "schema_version": 1
+    }
+  },
+  "notes": [
+    "Summarizes offline results; packet bytes, full protocol enrichment and machine-specific capture paths are excluded.",
+    "Source labels and hashes are independently reviewed in the committed manifests; findings are not exhaustive labels for all traffic.",
+    "The default six labelled cases pass; the opt-in normal P2P case intentionally remains a failing negative with 18 unique periodic-connection findings.",
+    "Labelled recall and monitored benign-host rates apply only to the declared corpus and exposure assumptions; they are not deployment precision or true-negative false-positive probabilities."
+  ]
+}

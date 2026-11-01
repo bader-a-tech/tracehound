@@ -38,6 +38,59 @@ indexing is measured separately with its elapsed time, database size, indexed
 packet count, reopen latency, cancellation outcome, and memory. Cancelling or
 rejecting an input must not produce a completed report or usable partial database.
 
+## Clean Windows candidate measurements
+
+These runs used source revision
+[`8f030b25a90be1564669c1fc16bc029854adcba1`](https://github.com/bader-a-tech/tracehound/commit/8f030b25a90be1564669c1fc16bc029854adcba1)
+on 1 November 2026, Rust 1.99.1, the release profile, and a Windows x64 machine
+reporting 24 logical processors (`AMD64 Family 23 Model 113 Stepping 0,
+AuthenticAMD`). Both reports record the same revision at start and end, all dirty
+flags false, executable hashes, and `checks_passed: true`.
+
+The workload was freshly written fixed-flow UDP traffic. Operating-system file
+cache state and other workstation activity were not controlled. These results
+measure the backend process tree, excluding a GUI and the system file cache.
+They do not describe arbitrary traffic, cold storage, or detection accuracy.
+
+| Nominal input | Packets | Rust analysis | MiB/s | Sampled peak tree RSS | Analysis cancellation cleanup |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 GiB | 701,793 | 2.114 s | 484.35 | 7.55 MiB | 5 ms |
+| 5 GiB | 3,508,961 | 10.301 s | 497.03 | 10.36 MiB | 5 ms |
+| 10 GiB | 7,017,921 | 21.131 s | 484.59 | 11.30 MiB | 5 ms |
+
+The separate index-only `CaseIndex::build` pass retained every accepted packet:
+
+| Nominal input | Index build | Sampled peak tree RSS | Database size | Reopen | Cancelled index total elapsed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 GiB | 16.776 s | 43.64 MiB | 91,729,920 bytes | 1 ms | 254 ms |
+| 5 GiB | 86.722 s | 44.36 MiB | 463,429,632 bytes | 1 ms | 257 ms |
+| 10 GiB | 170.899 s | 45.15 MiB | 929,947,648 bytes | 1 ms | 258 ms |
+
+Index cancellation totals include the configured 250 ms delay before the
+request; they are not cleanup-after-request measurements. The `investigate` CLI
+also runs detectors during its pass, so its combined duration is not measured by
+this index-only table. Reopen measures opening/validating the database, rather
+than loading every host/event or authenticating original packet bytes.
+
+All full-input packet counts matched. Cancelled analysis produced no completed
+report, cancelled indexing left no usable partial database, truncated inputs
+were rejected, and no preparation files remained.
+
+For a separate compatibility comparison, the same clean source built the legacy
+sensor with version `v0.6.0-candidate.8f030b2` and ran `--skip-index`:
+
+| Nominal input | Legacy analysis | MiB/s | Sampled peak tree RSS | Analysis cancellation cleanup |
+| --- | ---: | ---: | ---: | ---: |
+| 1 GiB | 4.615 s | 221.87 | 84.12 MiB | 15 ms |
+| 5 GiB | 28.491 s | 179.71 | 45.03 MiB | 10 ms |
+| 10 GiB | 78.370 s | 130.66 | 44.88 MiB | 5 ms |
+
+The runs were sequential and cache state was uncontrolled; this comparison is
+not a universal speedup claim. Raw reports preserve sampling counts, per-process
+lifetime peaks, preparation and truncation outcomes, and exact input sizes:
+[Rust](benchmarks/windows-rust-v0.6.0.json),
+[legacy sensor](benchmarks/windows-sensor-v0.6.0.json).
+
 ## Publishing comparable results
 
 Only runs built from an identified clean source revision are published as final
