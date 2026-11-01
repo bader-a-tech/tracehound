@@ -139,9 +139,6 @@ fn report_history_open_and_comparison_work_without_reanalysing_captures() {
 #[test]
 fn cached_corpus_outputs_reopen_with_provenance_and_unlabelled_cases() {
     use sha2::{Digest, Sha256};
-    let Some(sensor) = sensor() else {
-        return;
-    };
     let directory = TestDirectory::new();
     let cache = directory.join("corpus");
     fs::create_dir(&cache).unwrap();
@@ -163,8 +160,6 @@ fn cached_corpus_outputs_reopen_with_provenance_and_unlabelled_cases() {
             .arg(&cache)
             .arg("--manifest")
             .arg(&manifest)
-            .arg("--sensor")
-            .arg(&sensor)
             .arg("--json")
             .arg("--output")
             .arg(&saved)
@@ -177,6 +172,18 @@ fn cached_corpus_outputs_reopen_with_provenance_and_unlabelled_cases() {
         assert_code(&output, 0);
         let reopened = report(&output);
         assert_eq!(reopened["sources"][0]["sha256"], digest);
+        assert_eq!(reopened["validation"]["schema_version"], 1);
+        assert_eq!(
+            reopened["validation"]["labelled_cases"],
+            usize::from(labelled)
+        );
+        assert_eq!(
+            reopened["validation"]["observation_only_cases"],
+            usize::from(!labelled)
+        );
+        let mut tampered = reopened.clone();
+        tampered["validation"]["labelled_cases"] = json!(999);
+        assert!(tracehound_eval::store::ReportDocument::from_value(tampered).is_err());
         if labelled {
             assert_eq!(reopened["evaluation"]["summary"]["captures"], 1);
         } else {
@@ -266,6 +273,139 @@ fn write_pcap(path: &Path, frames: &[Vec<u8>]) {
         bytes.extend(frame);
     }
     fs::write(path, bytes).unwrap();
+}
+
+#[test]
+fn default_rust_analysis_runs_without_a_sensor_and_detects_independent_scan_frames() {
+    let directory = TestDirectory::new();
+    let capture = directory.join("scan.pcap");
+    write_pcap(&capture, &scan_frames());
+    let output = evaluator()
+        .env("PATH", "")
+        .arg("analyze")
+        .arg(&capture)
+        .args(["--json", "--home-nets", "10.7.0.0/24"])
+        .output()
+        .unwrap();
+    assert_code(&output, 0);
+    let result = report(&output);
+    assert_eq!(
+        result["enrichment"]["analysis"]["metadata"]["engine"],
+        "rust-stream"
+    );
+    assert!(result["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|finding| finding["alert"]["rule_id"] == "TH-0003"));
+    let conflict = evaluator()
+        .arg("analyze")
+        .arg(&capture)
+        .args(["--engine", "rust", "--sensor", "missing-sensor"])
+        .output()
+        .unwrap();
+    assert_code(&conflict, 2);
+}
+
+#[test]
+fn rust_case_commands_page_export_relocate_and_compare_original_evidence() {
+    let directory = TestDirectory::new();
+    let capture = directory.join("scan.pcap");
+    write_pcap(&capture, &scan_frames());
+    let index = directory.join("case.db");
+    let output = evaluator()
+        .arg("investigate")
+        .arg(&capture)
+        .arg("--index")
+        .arg(&index)
+        .args(["--json", "--home-nets", "10.7.0.0/24"])
+        .output()
+        .unwrap();
+    assert_code(&output, 0);
+    assert_eq!(report(&output)["packets"], 128);
+    let hosts = evaluator()
+        .arg("case")
+        .arg(&index)
+        .args(["--search", "10.7.0.99", "--limit", "1"])
+        .output()
+        .unwrap();
+    assert_code(&hosts, 0);
+    assert_eq!(report(&hosts)["hosts"][0]["address"], "10.7.0.99");
+    let page = evaluator()
+        .arg("timeline")
+        .arg(&index)
+        .args(["10.7.0.99", "--limit", "1"])
+        .output()
+        .unwrap();
+    assert_code(&page, 0);
+    let first = report(&page);
+    let cursor = first["next_id"].as_u64().unwrap().to_string();
+    let page = evaluator()
+        .arg("timeline")
+        .arg(&index)
+        .args(["10.7.0.99", "--limit", "1", "--after", &cursor])
+        .output()
+        .unwrap();
+    assert_code(&page, 0);
+    assert_ne!(report(&page)["events"][0]["id"], first["events"][0]["id"]);
+    let relocated = directory.join("relocated.pcap");
+    fs::rename(&capture, &relocated).unwrap();
+    let evidence = directory.join("selected.pcapng");
+    let missing = evaluator()
+        .arg("packet-export")
+        .arg(&index)
+        .arg("1,2")
+        .arg(&evidence)
+        .output()
+        .unwrap();
+    assert_code(&missing, 2);
+    assert!(!evidence.exists());
+    let exported = evaluator()
+        .arg("packet-export")
+        .arg(&index)
+        .arg("1,2")
+        .arg(&evidence)
+        .arg("--source")
+        .arg(&relocated)
+        .output()
+        .unwrap();
+    assert_code(&exported, 0);
+    assert_eq!(
+        tracehound_eval::capture::inspect_capture(&evidence)
+            .unwrap()
+            .input_packets,
+        2
+    );
+    let folder = directory.join("host report");
+    let exported = evaluator()
+        .arg("case-export")
+        .arg(&index)
+        .arg("10.7.0.99")
+        .arg(&folder)
+        .args(["--include-packets", "--source"])
+        .arg(&relocated)
+        .output()
+        .unwrap();
+    assert_code(&exported, 0);
+    assert!(folder.join("investigation.html").is_file());
+    assert!(folder.join("evidence.pcapng").is_file());
+    let comparison = evaluator()
+        .arg("behavior-compare")
+        .arg(&index)
+        .arg(&index)
+        .arg("10.7.0.99")
+        .args(["--seconds", "10"])
+        .output()
+        .unwrap();
+    assert_code(&comparison, 0);
+    assert_eq!(
+        report(&comparison)["rates"]["packets_sent_per_second"]["ratio"],
+        1.0
+    );
+    assert_eq!(
+        report(&comparison)["changes"]["destinations"]["added"],
+        json!([])
+    );
 }
 
 fn write_pcapng(path: &Path, frames: &[Vec<u8>]) {

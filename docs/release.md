@@ -1,106 +1,163 @@
-# Install and release the desktop application
+# Install and release Tracehound
 
-Release archives contain the complete local application: the `tracehound` sensor,
-the `tracehound-eval` command-line backend, and the `tracehound-desktop` native GUI.
-Extract the archive into one folder and keep the three executables together. The
-desktop application discovers the adjacent sensor automatically. Capture analysis
-does not require a compiler, a browser server, or a demo capture.
+The native application analyses local PCAP/PCAPNG files with the Rust backend.
+Installers and portable bundles also retain the legacy `tracehound` Go executable
+for explicit compatibility comparisons. Ordinary Rust analysis requires no Go
+runtime, compiler, browser server, or packet capture driver.
 
-## Choose an archive
+## Choose a package
 
-The [releases page](https://github.com/baldoseri/tracehound/releases) contains
-published versions. Builds use native runners for each supported combination:
+Published artifacts are listed on the
+[releases page](https://github.com/bader-a-tech/tracehound/releases). Current
+packages are prepared unsigned because publisher credentials are not configured.
+Their filenames and accompanying `*-signing.json` describe the actual signing
+state. PR artifacts are always unsigned and are review builds, rather than
+published releases.
 
-| Archive suffix | Computer | Build and verification environment |
-| --- | --- | --- |
-| `linux-amd64.tar.gz` | Linux, Intel or AMD 64-bit | Ubuntu 24.04 x64 |
-| `linux-arm64.tar.gz` | Linux, ARM 64-bit | Ubuntu 24.04 ARM64 |
-| `darwin-amd64.tar.gz` | macOS, Intel | macOS 15 Intel |
-| `darwin-arm64.tar.gz` | macOS, Apple silicon | macOS 15 ARM64 |
-| `windows-amd64.zip` | Windows, Intel or AMD 64-bit | Windows hosted x64 runner |
+| Platform | Native package | Portable alternative | Native build/test environment |
+| --- | --- | --- | --- |
+| Windows amd64 | Per-user `.msi` | `.zip` | Windows x64 hosted runner |
+| macOS Intel | `Tracehound.app` in `.dmg` | `.tar.gz` | macOS 15 Intel |
+| macOS Apple silicon | `Tracehound.app` in `.dmg` | `.tar.gz` | macOS 15 ARM64 |
+| Linux amd64 | `.deb` with desktop launcher | `.tar.gz` | Ubuntu 24.04 x64 |
+| Linux arm64 | `.deb` with desktop launcher | `.tar.gz` | Ubuntu 24.04 ARM64 |
 
-These are the environments used to compile and verify the bundles; older
-operating-system compatibility is not implied. Linux desktop use requires a
-working X11 or Wayland session and OpenGL libraries. Offline capture analysis does
-not require administrator access. Live capture has platform-specific driver and
-permission requirements described in the [capture guide](capture-evaluation.md).
-Windows and macOS builds do not yet include publisher code signing. The
-application is distributed as a portable archive rather than an operating-system
-installer.
+These are the build/test environments; older operating-system compatibility is
+not implied. Linux packages require glibc 2.39 or newer, an X11/Wayland session,
+and OpenGL libraries. Their dependency declarations include the distinct Xcursor,
+XInput, Xlib/XCB, XKB/X11, and Wayland/EGL runtime libraries used by the GUI.
+The Debian package is not a distro-independent installer.
 
-Verify the downloaded archive against the accompanying `SHA256SUMS.txt` before
-extracting it. On Linux, use `sha256sum --check SHA256SUMS.txt` in a folder containing
-the release archives. On macOS, use `shasum -a 256 --check SHA256SUMS.txt`. If only
-one archive was downloaded, missing-file messages for the other platforms are
-expected; the line for the chosen archive must say `OK`. On Windows, compare
-`Get-FileHash .\tracehound-vVERSION-windows-amd64.zip -Algorithm SHA256` with its
-line in the checksum file.
+Verify the selected download against `SHA256SUMS.txt`. Linux can use
+`sha256sum --check SHA256SUMS.txt`, macOS `shasum -a 256 --check SHA256SUMS.txt`, and
+Windows `Get-FileHash .\PACKAGE.msi -Algorithm SHA256`. If only one artifact was
+downloaded, checksum commands may report the other files missing; the selected
+file's line must match. Signing metadata is checksummed with the packages.
 
-Open `tracehound-desktop` (`tracehound-desktop.exe` on Windows), then drop your PCAP
-or PCAPNG into the window or select its path. Use the bundled CLI for scripts and
-labelled evaluation. For example, from the extracted folder:
+On Windows, run the MSI to install under the current user's
+`LocalAppData\Programs\Tracehound` and add a Start menu shortcut. It needs no
+administrator access. It registers an Open With choice for PCAP/PCAPNG without
+replacing an existing default application. Uninstall removes application files;
+separately stored captures, cases, and history remain user data.
+
+On macOS, open the DMG and drag Tracehound to Applications. The app includes
+backend executables in `Contents/MacOS` and documentation/notices in
+`Contents/Resources`. An unsigned/ad-hoc package does not have verified publisher
+identity or notarization, so macOS may require an explicit user trust decision.
+Open a capture inside the app or drop it into the app window. Finder Open With
+registration is not claimed where the GUI framework does not forward that event.
+
+On compatible Debian/Ubuntu systems, install the `.deb` with the system package
+manager. It adds the application under `/opt/tracehound` and a desktop-menu
+launcher/icon. A working graphical session is required for the GUI; the CLI also
+works without a window. Live capture permissions and optional helpers are
+separate requirements described in the [capture guide](capture-evaluation.md).
+No installer automatically installs Wireshark, Npcap, or packet drivers.
+
+For a portable bundle, extract everything into one folder. The GUI, CLI,
+documentation, notices, and optional legacy sensor stay together. For example:
 
 ```sh
-./tracehound-eval analyze /path/to/capture.pcap --sensor ./tracehound --json
+./tracehound-eval analyze /path/to/capture.pcap --json
 ```
-
-On Windows:
 
 ```powershell
-.\tracehound-eval.exe analyze C:\Captures\traffic.pcap --sensor .\tracehound.exe --json
+.\tracehound-eval.exe analyze C:\Captures\traffic.pcap --json
 ```
 
-Captures are read locally. The optional external validation corpus downloads
-captures only when explicitly requested; its provenance and current results are
-documented in [validation-corpus.md](validation-corpus.md).
+`--engine sensor --sensor PATH` selects the legacy engine explicitly. Default
+analysis remains local Rust. External corpus/feed downloads occur only when
+requested; their sources and limits are documented separately.
 
-## Build a candidate release
+## Native build and review checks
 
-The [release workflow](https://github.com/baldoseri/tracehound/blob/main/.github/workflows/release.yml) runs on a pushed `v*` tag
-or a manual dispatch for an existing tag. The tag must use `vMAJOR.MINOR.PATCH`,
-with an optional prerelease suffix, and the Rust package version must match the
-tag without `v`. Update `tools/capture-eval/Cargo.toml` and its lockfile together
-before tagging.
+The [release workflow](https://github.com/bader-a-tech/tracehound/blob/main/.github/workflows/release.yml)
+builds all five native targets. PR runs build reviewable unsigned installers and
+archives with read-only repository permissions; they never create a release or
+receive signing credentials. Tag/manual runs require an existing version tag
+matching the Rust package version and can assemble a draft after all checks pass.
+No workflow run publishes a draft automatically.
 
-Each native job runs the Go checks, builds the sensor with the exact release tag,
-and builds the Rust CLI and GUI with the committed Cargo lockfile. Linux jobs
-install the desktop development libraries on their disposable runners. The Rust
-tests run against the newly built sensor. The stage contains the three binaries,
-`LICENSE`, `README.md`, `SECURITY.md`, `docs/`, and `licenses/`; no captured traffic is included.
-The Rust `release-notices` helper reads offline Cargo metadata for the native
-target and the Go dependency module list, then copies upstream license, copyright, and notice
-files from the dependency sources already present after the builds. Its catalog
-records package versions, declared Rust licenses, source locations, and source
-archive links. Missing notice files fail the release job for review. Third-party
-copyright and authorship notices are preserved verbatim. Version-specific,
-digest-checked workspace license fallbacks cover crates whose archives omit those
-documents. The catalog records any such exception. Font licenses and standard
-library notices are included. Windows release builds link the Rust C runtime
-statically to avoid requiring a separate Visual C++ runtime installation.
+The pipeline runs Go and Rust/GUI checks, builds the real binaries, and preserves
+`LICENSE`, `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, documentation, and dependency notices.
+`release-notices` collects upstream license/copyright/font files and standard
+library notices from installed sources. Version-specific missing-workspace
+license fallbacks are digest-checked and recorded with their source/exception in
+the catalog. Upstream attribution is retained verbatim.
 
-The job then creates an archive, extracts it into a directory containing spaces,
-and runs the Rust `release-smoke` helper against the extracted binaries. That
-helper checks both version strings and constructs a valid Ethernet/IPv4/TCP PCAP
-directly from wire fields, with IP and TCP checksums. It requires the packaged
-backend to identify 128 distinct destination ports from `10.7.0.99` to
-`10.7.0.10` as `TH-0003`, then requires labelled evaluation to report one match,
-no misses, and no unexpected findings. The desktop executable is checked for
-presence and compiled on its target platform; this headless release step does
-not exercise window interactions.
+Windows packages use the WiX 3 tools already present on native hosted runners.
+The payload uses stable component identities and per-user registry keypaths;
+Windows Rust release binaries link the C runtime statically. macOS uses native
+`codesign`, `sips`, `iconutil`, and `hdiutil`; Linux uses `dpkg-deb` and a desktop
+entry. A dependency-free Rust helper renders launcher assets. These scripts do
+not install build tools on the user's computer.
 
-The independent fixture verifies packaging and integration. It does not establish
-field detection accuracy. The separate external corpus provides that additional,
-limited evidence without including real capture bytes in the repository.
+Native package checks exercise the actual artifact:
 
-Only after every native bundle passes does the assembly job combine SHA-256
-checksums and create or update a **draft** GitHub release. A maintainer reviews the
-notes, native GUI behaviour, installation requirements, and corpus report before
-publishing that draft. A workflow run alone does not publish a release.
+- Windows silently installs the MSI on its disposable runner, verifies the
+  installed backend and real GUI startup, then uninstalls it.
+- macOS verifies/mounts the DMG, checks the app's structure/signature/notices, and
+  executes its backend and GUI from inside the mounted app.
+- Linux validates the Debian package and desktop entry, installs through apt to
+  resolve declared runtime dependencies, verifies the installed backend and GUI
+  under Xvfb, then removes the package and checks that the executable is gone.
 
-For a local packaging check, build `release-smoke` and run it against an extracted
-bundle. The final argument must name a new directory; existing contents are never
-reused or removed:
+`--smoke-test` opens the real native renderer, verifies a nonblank rendered frame,
+and exits. The separate product-validation job renders an actual externally
+captured case and verified packet view. Local checks do not launch a window on
+the user's desktop implicitly.
 
-```sh
-cargo run --release --locked --bin release-smoke --manifest-path tools/capture-eval/Cargo.toml -- /path/to/unpacked-bundle vVERSION /path/to/new-verification-directory
-```
+`release-smoke` constructs valid independent wire-level PCAP bytes and requires
+the packaged Rust analyzer to identify the independent 128-port input as `TH-0003`, evaluate labels,
+create/reopen an indexed case, and export/reopen verified evidence. The legacy
+sensor is checked separately. Rust evidence describes the qualifying emission
+window (20 through 128 ports); legacy end-of-file evidence can report all 128.
+This is integration evidence, not a claim of field
+accuracy; the independent corpus and its retained benign findings provide
+additional, limited evidence.
+
+Archives are also extracted into paths containing spaces and checked. Checksums
+are computed after signatures and final packaging mutations. Only after every
+native job passes can a tag/manual run assemble a draft. A maintainer reviews
+native installation, rendered UI evidence, corpus results, notices, and release
+notes before publication.
+
+## Optional signing and notarization
+
+Unsigned builds require no signing secrets. To enable signing for future trusted
+tag/manual release jobs, configure repository secrets explicitly. Do not put
+private keys, certificate passwords, or notarization passwords in source control.
+PR jobs ignore these credentials even when they exist.
+
+| Platform | Secret or variable | Purpose |
+| --- | --- | --- |
+| Windows | `WINDOWS_CERTIFICATE_PFX_BASE64` | Base64-encoded publisher code-signing PFX |
+| Windows | `WINDOWS_CERTIFICATE_PASSWORD` | PFX password |
+| Windows | `WINDOWS_TIMESTAMP_URL` repository variable, optional | HTTPS RFC 3161 timestamp service; defaults to DigiCert |
+| macOS | `MACOS_CERTIFICATE_P12_BASE64` | Base64-encoded Developer ID Application certificate/private key |
+| macOS | `MACOS_CERTIFICATE_PASSWORD` | PKCS#12 password |
+| macOS | `MACOS_SIGNING_IDENTITY` | Exact Developer ID Application signing identity |
+| macOS | `MACOS_NOTARY_APPLE_ID` | Apple account used for notarization |
+| macOS | `MACOS_NOTARY_TEAM_ID` | Developer team identifier |
+| macOS | `MACOS_NOTARY_PASSWORD` | App-specific notarization password |
+
+Windows imports the certificate into the disposable runner's current-user store,
+signs/verifies the three executables and MSI, and removes the imported key and
+PFX afterward. macOS creates a temporary keychain, restores the original search
+list, signs the executable leaves and app with hardened runtime/timestamps,
+submits the app for notarization, staples its ticket, then builds/signs/notarizes
+and staples the DMG. The workflow verifies an `Accepted` notarization response
+rather than treating command completion as acceptance. Temporary certificate and
+keychain files are cleaned up.
+
+If no certificate is supplied, Windows produces an `unsigned.msi`; macOS uses an
+ad-hoc integrity signature and produces an `unsigned.dmg`, with
+`ad_hoc_only: true`. This does not claim publisher trust. Configured-but-invalid
+credentials or rejected notarization fail the job rather than silently labelling
+an artifact signed. Linux packages currently carry checksums rather than package
+repository signing.
+
+Certificate acquisition and account setup remain maintainer responsibilities.
+The scripts follow the native platform tools and GitHub's
+[temporary Apple certificate/keychain workflow](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications).
+Their unsigned path remains usable until credentials are deliberately configured.

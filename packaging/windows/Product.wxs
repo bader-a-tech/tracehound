@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Tracehound" Language="1033" Version="$(var.PackageVersion)" Manufacturer="Tracehound" UpgradeCode="A4914A5B-3F24-4DD2-AC75-391E8E4B7F49">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" InstallPrivileges="limited"/>
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer Tracehound version is already installed."/>
+    <MediaTemplate EmbedCab="yes"/>
+    <Icon Id="TracehoundIcon" SourceFile="$(var.StageDir)\tracehound.ico"/>
+    <Property Id="ARPPRODUCTICON" Value="TracehoundIcon"/>
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/bader-a-tech/tracehound"/>
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER"/>
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseFile)"/>
+    <UIRef Id="WixUI_InstallDir"/>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder"><Directory Id="ProgramsFolder" Name="Programs"><Directory Id="INSTALLFOLDER" Name="Tracehound"/></Directory></Directory>
+      <Directory Id="ProgramMenuFolder"><Directory Id="TracehoundMenu" Name="Tracehound">
+        <Component Id="LaunchShortcut" Guid="*">
+          <Shortcut Id="TracehoundStartMenu" Name="Tracehound" Target="[INSTALLFOLDER]tracehound-desktop.exe" WorkingDirectory="INSTALLFOLDER" Icon="TracehoundIcon"/>
+          <RemoveFolder Id="RemoveTracehoundMenu" On="uninstall"/>
+          <RegistryValue Root="HKCU" Key="Software\Tracehound" Name="Installed" Type="integer" Value="1" KeyPath="yes"/>
+        </Component>
+      </Directory></Directory>
+    </Directory>
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="CaptureOpenWith" Guid="*">
+        <RemoveFolder Id="RemoveInstallationFolder" On="uninstall"/>
+        <RemoveFolder Id="RemoveEmptyProgramsFolder" Directory="ProgramsFolder" On="uninstall"/>
+        <RegistryValue Root="HKCU" Key="Software\Classes\Tracehound.Capture" Value="Tracehound network capture" Type="string" KeyPath="yes"/>
+        <RegistryValue Root="HKCU" Key="Software\Classes\Tracehound.Capture\DefaultIcon" Value="[INSTALLFOLDER]tracehound.ico" Type="string"/>
+        <RegistryValue Root="HKCU" Key="Software\Classes\Tracehound.Capture\shell\open\command" Value="&quot;[INSTALLFOLDER]tracehound-desktop.exe&quot; &quot;%1&quot;" Type="string"/>
+        <RegistryValue Root="HKCU" Key="Software\Classes\.pcap\OpenWithProgids" Name="Tracehound.Capture" Value="" Type="string"/>
+        <RegistryValue Root="HKCU" Key="Software\Classes\.pcapng\OpenWithProgids" Name="Tracehound.Capture" Value="" Type="string"/>
+      </Component>
+    </DirectoryRef>
+    <Feature Id="Application" Title="Tracehound" Level="1">
+      <ComponentGroupRef Id="AppFiles"/><ComponentRef Id="LaunchShortcut"/><ComponentRef Id="CaptureOpenWith"/>
+    </Feature>
+  </Product>
+</Wix>

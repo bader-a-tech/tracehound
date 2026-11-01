@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "captures": [
+    {
+      "id": "ctu-normal-dns",
+      "filename": "ctu-normal-dns.pcap",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-4-only-DNS/2015-03-24_capture1-only-dns.pcap",
+      "sha256": "7fbefbe1a18867bc683f59890cbc0124e5f6166e5aa13035fcf1ccf2f06f7ae4",
+      "bytes": 772961,
+      "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-4-only-DNS/README.md",
+      "license": "Publisher-provided research capture; no capture bytes redistributed by this project. See source terms.",
+      "description": "Publisher-labelled normal home-network DNS traffic: 5966 packets over 1.9 hours; host 10.0.0.34. Non-DNS payload was removed by the publisher for privacy.",
+      "classification": "publisher-labelled normal traffic",
+      "expected": [],
+      "benign_hosts": [
+        "10.0.0.34"
+      ],
+      "min_severity": "low"
+    },
+    {
+      "id": "stratosphere-periodic-c2",
+      "filename": "stratosphere-periodic-c2.pcap",
+      "url": "https://raw.githubusercontent.com/stratosphereips/StratosphereLinuxIPS/b5061a961b8348353070e168e8ea3c9101961f4b/dataset/test-cc/test-cc-capture-1.pcap",
+      "sha256": "2276e5ac0303296b71d3363c6e844cd94adcac6b256d2b2d4b1c7aa3ccaed035",
+      "bytes": 2072846,
+      "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-1-pcap",
+      "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+      "description": "Independently captured controlled timing case. Upstream documents curl connections every 2 seconds; this is not an infection or representative malware corpus.",
+      "classification": "controlled periodic network capture",
+      "home_nets": "147.32.0.0/16",
+      "expected": [
+        {
+          "rule_id": "TH-0001",
+          "src": "147.32.80.37",
+          "dst": "141.193.213.21"
+        }
+      ],
+      "benign_hosts": [],
+      "min_severity": "low"
+    },
+    {
+      "id": "stratosphere-malware-sweep",
+      "filename": "stratosphere-malware-observation.pcap",
+      "url": "https://raw.githubusercontent.com/stratosphereips/StratosphereLinuxIPS/b5061a961b8348353070e168e8ea3c9101961f4b/dataset/test7-malicious.pcap",
+      "sha256": "cd864709778a7449955671315d1ccc3c6694bb120732c6f60fa9ba01e5c962cb",
+      "bytes": 339844,
+      "source_url": "https://github.com/stratosphereips/StratosphereLinuxIPS/tree/b5061a961b8348353070e168e8ea3c9101961f4b/dataset",
+      "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+      "description": "Upstream malicious-traffic capture. Independent Ethernet/IPv4/TCP inspection found 192.168.2.16 sending 255 SYN-without-ACK packets to 54 destinations on TCP/23 over 133.019 seconds, supporting a horizontal-sweep expectation. This label covers the observed sweep, not every possible behaviour in the file.",
+      "classification": "upstream malicious traffic with independently verified sweep label",
+      "expected": [
+        {
+          "rule_id": "TH-0004",
+          "src": "192.168.2.16"
+        }
+      ],
+      "benign_hosts": [],
+      "min_severity": "low"
+    },
+    {
+      "id": "ctu-normal-web",
+      "filename": "ctu-normal-web.pcap",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-13/2017-07-03_capture-win2.pcap",
+      "sha256": "ebd495484e66dea49a7ff95f9ae7415b6a51a963713014ac0e822d2828afb2c7",
+      "bytes": 506351,
+      "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-13/README.html",
+      "license": "Publisher permits use with citation to Garcia, Sebastian, Malware Capture Facility Project, Stratosphere IPS. Downloaded locally; no capture bytes redistributed.",
+      "description": "Publisher-labelled normal Windows browser access to https://www.us.hsbc.com by host 192.168.1.112. Independently inspected949 packets over148.186750 seconds. Packet timestamps are relative/anonymized, so the publisher wall-clock timeline is not used as exposure ground truth.",
+      "classification": "publisher-labelled normal web/TLS traffic",
+      "expected": [],
+      "benign_hosts": [
+        "192.168.1.112"
+      ],
+      "min_severity": "low"
+    },
+    {
+      "id": "stratosphere-jittered-c2",
+      "filename": "stratosphere-jittered-c2.pcap",
+      "url": "https://raw.githubusercontent.com/stratosphereips/StratosphereLinuxIPS/b5061a961b8348353070e168e8ea3c9101961f4b/dataset/test-cc/test-cc-capture-2.pcap",
+      "sha256": "03e3e0b3e47fcb8801870fc00fd8f7e8f1924bb5398c4ecf28f811eaaf62cdbc",
+      "bytes": 264119,
+      "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-2-pcap",
+      "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+      "description": "Independently captured controlled curl timing case: upstream documents delays between 2 and 3 seconds. Separate Ethernet/IPv4/TCP inspection found22 SYN connections from 147.32.80.37 to 141.193.213.20:443 spanning 64.249644 seconds. This is controlled periodic traffic, not a malware infection.",
+      "classification": "controlled semi-periodic network capture",
+      "home_nets": "147.32.0.0/16",
+      "expected": [
+        {
+          "rule_id": "TH-0001",
+          "src": "147.32.80.37",
+          "dst": "141.193.213.20"
+        }
+      ],
+      "benign_hosts": [],
+      "min_severity": "low"
+    },
+    {
+      "id": "stratosphere-malware-observation-8",
+      "filename": "stratosphere-malware-eight.pcap",
+      "url": "https://raw.githubusercontent.com/stratosphereips/StratosphereLinuxIPS/b5061a961b8348353070e168e8ea3c9101961f4b/dataset/test8-malicious.pcap",
+      "sha256": "191da8b6eba7846750df8b8d2dbca9664cabdcce0f51978349de5c764e3e6361",
+      "bytes": 31513,
+      "source_url": "https://github.com/stratosphereips/StratosphereLinuxIPS/tree/b5061a961b8348353070e168e8ea3c9101961f4b/dataset",
+      "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+      "description": "Upstream malicious-traffic trace:534 packets over 12.821131 seconds. No exhaustive rule-level labels are provided or invented; this case checks parsing and observations and is excluded from recall and benign-rate denominators.",
+      "classification": "publisher malicious traffic; observation only without reviewed rule-level labels",
+      "benign_hosts": [],
+      "min_severity": "low"
+    },
+    {
+      "id": "ctu-normal-p2p",
+      "filename": "ctu-normal-p2p.pcap",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.pcap",
+      "sha256": "9daf9c1746dae37a234bac32090e8bc925e837af78cfffc3b4cc7c46d901542b",
+      "bytes": 417195191,
+      "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/README.html",
+      "license": "Publisher-provided research capture; no capture bytes redistributed by this project. Cite Garcia, Sebastian, Malware Capture Facility Project, Stratosphere IPS.",
+      "description": "Publisher manually checked the Debian host 10.0.0.46 as normal; captured Deluge P2P downloads, Chrome browsing, Jabber and normal mtr reverse-DNS queries. All host unicast traffic and related router traffic are included; broadcast/multicast and unrelated LAN hosts were removed. Publisher capinfos reports 1282 seconds and non-strict timestamp ordering. Large opt-in case; benign findings must be retained rather than tuned away.",
+      "classification": "publisher-verified normal P2P/web/messaging traffic",
+      "home_nets": "10.0.0.0/24",
+      "expected": [],
+      "benign_hosts": [
+        "10.0.0.46"
+      ],
+      "min_severity": "low",
+      "benign_exposure": [
+        {
+          "host": "10.0.0.46",
+          "monitored_seconds": 1282.0,
+          "rule_ids": [
+            "TH-0001",
+            "TH-0002",
+            "TH-0003",
+            "TH-0004",
+            "TH-0005",
+            "TH-0007"
+          ],
+          "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/2013-12-17_capture1.capinfos",
+          "basis": "Publisher README identifies one manually verified normal host and a continuous host capture; publisher capinfos independently reports a 1282-second observation interval. This is monitored-host time, not an assumption that the user was active for every instant.",
+          "assumptions": [
+            "The publisher continuous-capture description is accepted; no independent sensor uptime log is available.",
+            "Broadcast/multicast are removed, so exposure applies only to observable unicast behaviours for the declared rules.",
+            "Idle gaps remain monitoring time, not inferred activity; this small dataset does not establish deployment calibration.",
+            "Capture timestamps are not strictly ordered; detector handling of out-of-order traffic can affect counts."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "graphtunnel-dnscat2-mx",
+      "filename": "graphtunnel-dnscat2-mx.pcap",
+      "url": "https://raw.githubusercontent.com/ggyggy666/DNS-Tunnel-Datasets/e3dccb8a9481cc984592bcc6a018a376dc8e5fac/tunnel/dnscat2-mx.pcap",
+      "sha256": "e035355338ff4e432ce7c15d39947bd3e254c20f01b90e1272b4f645b0201be2",
+      "bytes": 13012503,
+      "source_url": "https://github.com/ggyggy666/DNS-Tunnel-Datasets/blob/e3dccb8a9481cc984592bcc6a018a376dc8e5fac/README.md",
+      "license": "Publisher research dataset requests citation to GraphTunnel: Robust DNS Tunnel Detection Based on DNS Recursive Resolution Graph. Capture downloaded locally; no bytes redistributed.",
+      "description": "Publisher-labelled dnscat2 MX DNS tunnel captured for the GraphTunnel research dataset. Independent DNS wire inspection found 25,687 unique MX queries from 192.168.68.62 under ggy666.tk, with mean full-name length 151.851 bytes, among 51,371 packets. The expected behaviour is DNS tunnelling; no label was inferred from Tracehound output.",
+      "classification": "independent researcher-captured DNS tunnel with reviewed positive label",
+      "home_nets": "192.168.68.0/24",
+      "expected": [
+        {
+          "rule_id": "TH-0002",
+          "src": "192.168.68.62"
+        }
+      ],
+      "benign_hosts": [],
+      "min_severity": "low"
+    }
+  ]
+}

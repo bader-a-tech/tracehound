@@ -51,6 +51,84 @@ fn run() -> Result<(), String> {
         Command::new(&evaluator)
             .arg("analyze")
             .arg(&capture)
+            .arg("--json"),
+    )?;
+    let rust_report: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("invalid default Rust analysis JSON: {e}"))?;
+    if rust_report["enrichment"]["analysis"]["metadata"]["engine"] != "rust-stream"
+        || rust_report["findings"]
+            .as_array()
+            .is_none_or(|findings| findings.len() != 1)
+        || rust_report["findings"][0]["alert"]["rule_id"] != "TH-0003"
+        || rust_report["findings"][0]["alert"]["src"] != "10.7.0.99"
+        || rust_report["findings"][0]["alert"]["dst"] != "10.7.0.10"
+        || rust_report["findings"][0]["alert"]["evidence"]["ports_probed"]
+            .as_u64()
+            .is_none_or(|count| !(20..=128).contains(&count))
+        || rust_report["enrichment"]["input_packets"] != 128
+    {
+        return Err(
+            "packaged default Rust engine did not detect the independently encoded 128-port scan"
+                .into(),
+        );
+    }
+    fs::write(work.join("rust-analysis.json"), &output.stdout)
+        .map_err(|e| format!("save Rust analysis: {e}"))?;
+    let index = work.join("case.db");
+    let output = checked(
+        Command::new(&evaluator)
+            .arg("investigate")
+            .arg(&capture)
+            .arg("--index")
+            .arg(&index)
+            .arg("--json"),
+    )?;
+    let overview: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("invalid case overview: {e}"))?;
+    if overview["packets"] != 128
+        || overview["capture"]["sha256"]
+            .as_str()
+            .is_none_or(|digest| digest.len() != 64)
+    {
+        return Err("packaged Rust investigation lost original packet provenance".into());
+    }
+    let export = work.join("host-report");
+    checked(
+        Command::new(&evaluator)
+            .arg("case-export")
+            .arg(&index)
+            .arg("10.7.0.99")
+            .arg(&export)
+            .arg("--include-packets"),
+    )?;
+    for name in [
+        "investigation.html",
+        "investigation.json",
+        "evidence.pcapng",
+        "SHA256SUMS.txt",
+    ] {
+        if !export.join(name).is_file() {
+            return Err(format!("packaged investigation export omitted {name}"));
+        }
+    }
+    let output = checked(
+        Command::new(&evaluator)
+            .arg("analyze")
+            .arg(export.join("evidence.pcapng"))
+            .arg("--json"),
+    )?;
+    let exported: Value = serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+    if exported["enrichment"]["input_packets"]
+        .as_u64()
+        .is_none_or(|count| count == 0)
+    {
+        return Err("packaged packet export cannot be reopened".into());
+    }
+
+    let output = checked(
+        Command::new(&evaluator)
+            .arg("analyze")
+            .arg(&capture)
             .arg("--sensor")
             .arg(&sensor)
             .arg("--json"),
@@ -105,7 +183,7 @@ fn run() -> Result<(), String> {
     }
     fs::write(work.join("evaluation.json"), &output.stdout)
         .map_err(|e| format!("save evaluation: {e}"))?;
-    println!("Verified packaged sensor {expected_version}, evaluator {}, desktop binary, and independent PCAP analysis/evaluation", env!("CARGO_PKG_VERSION"));
+    println!("Verified packaged Rust analysis, indexed investigation, original-packet export/reopen, sensor {expected_version}, evaluator {}, desktop binary, and independent legacy PCAP analysis/evaluation", env!("CARGO_PKG_VERSION"));
     Ok(())
 }
 

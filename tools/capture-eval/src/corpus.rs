@@ -44,9 +44,24 @@ pub struct CorpusEntry {
     pub benign_hosts: Vec<IpAddr>,
     #[serde(default)]
     pub min_severity: Severity,
+    /// Reviewed whole-capture monitoring windows. Never inferred merely from
+    /// the first/last packet or an unlabelled trace's idle gaps.
+    #[serde(default)]
+    pub benign_exposure: Vec<BenignExposure>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BenignExposure {
+    pub host: IpAddr,
+    pub monitored_seconds: f64,
+    pub rule_ids: Vec<String>,
+    pub source_url: String,
+    pub basis: String,
+    pub assumptions: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct VerifiedCapture {
     pub id: String,
     pub path: PathBuf,
@@ -58,6 +73,8 @@ pub struct VerifiedCapture {
     pub description: String,
     pub home_nets: Option<String>,
     pub case: Option<CaptureCase>,
+    #[serde(default)]
+    pub benign_exposure: Vec<BenignExposure>,
 }
 
 impl CorpusManifest {
@@ -130,6 +147,31 @@ impl CorpusManifest {
                     "corpus {} has benign labels but no explicit expected list",
                     entry.id
                 ));
+            }
+            let mut exposed = BTreeSet::new();
+            for exposure in &entry.benign_exposure {
+                if !entry.benign_hosts.contains(&exposure.host)
+                    || !exposure.monitored_seconds.is_finite()
+                    || exposure.monitored_seconds <= 0.0
+                    || exposure.monitored_seconds > 366.0 * 24.0 * 3600.0
+                    || exposure.rule_ids.is_empty()
+                    || !https_url(&exposure.source_url)
+                    || exposure.basis.trim().is_empty()
+                    || exposure.assumptions.is_empty()
+                {
+                    return Err(format!(
+                        "corpus {} has unsupported benign exposure metadata",
+                        entry.id
+                    ));
+                }
+                for rule in &exposure.rule_ids {
+                    if rule.trim().is_empty() || !exposed.insert((exposure.host, rule)) {
+                        return Err(format!(
+                            "corpus {} has duplicate or invalid exposure rules",
+                            entry.id
+                        ));
+                    }
+                }
             }
         }
         Ok(())
@@ -232,6 +274,7 @@ pub fn fetch_verified_cancellable(
             description: entry.description.clone(),
             home_nets: entry.home_nets.clone(),
             case: entry.case(path),
+            benign_exposure: entry.benign_exposure.clone(),
         });
     }
     check_cancelled(cancelled)?;
@@ -413,11 +456,34 @@ mod tests {
     #[test]
     fn builtin_metadata_is_complete_and_labelled_cases_are_explicit() {
         let manifest = CorpusManifest::builtin().unwrap();
-        assert_eq!(manifest.captures.len(), 3);
+        assert_eq!(manifest.captures.len(), 7);
+        assert_eq!(
+            manifest
+                .captures
+                .iter()
+                .filter(|capture| capture.expected.is_some())
+                .count(),
+            6
+        );
         assert!(manifest
             .captures
             .iter()
-            .all(|capture| capture.expected.is_some()));
+            .any(|capture| capture.expected.is_none()
+                && capture.classification.contains("observation")));
+    }
+
+    #[test]
+    fn extended_exposure_requires_reviewed_benign_labels_and_source_assumptions() {
+        let mut manifest: CorpusManifest =
+            serde_json::from_str(include_str!("../data/corpus-extended.json")).unwrap();
+        manifest.validate().unwrap();
+        let capture = manifest
+            .captures
+            .iter_mut()
+            .find(|capture| !capture.benign_exposure.is_empty())
+            .unwrap();
+        capture.benign_exposure[0].assumptions.clear();
+        assert!(manifest.validate().is_err());
     }
 
     #[test]

@@ -21,6 +21,8 @@ pub struct CorpusReport {
     pub sources: Vec<Value>,
     pub evaluation: SuiteReport,
     pub observations: Vec<CaptureReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation: Option<crate::validation::ValidationSummary>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -132,6 +134,25 @@ impl ReportDocument {
                     validate_analysis(&capture.report)?;
                     if !paths.insert(&capture.capture) {
                         return Err("duplicate corpus observation path".into());
+                    }
+                }
+                if let Some(validation) = &report.validation {
+                    let sources = report
+                        .sources
+                        .iter()
+                        .cloned()
+                        .map(serde_json::from_value::<crate::corpus::VerifiedCapture>)
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| format!("invalid validation provenance: {e}"))?;
+                    let expected =
+                        crate::validation::summarize(&sources, &report.evaluation.captures)?;
+                    if serde_json::to_value(validation).map_err(|e| e.to_string())?
+                        != serde_json::to_value(expected).map_err(|e| e.to_string())?
+                    {
+                        return Err(
+                            "corpus validation metrics do not match the source labels and reports"
+                                .into(),
+                        );
                     }
                 }
             }

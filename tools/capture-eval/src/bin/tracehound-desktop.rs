@@ -12,13 +12,42 @@ use tracehound_eval::live::{
     self, CaptureInterface, LiveSession, LiveSnapshot, PortableRecording, RecordingLimits,
     RecordingState,
 };
-use tracehound_eval::runtime::{CaptureJob, JobReport, SensorOptions};
+use tracehound_eval::runtime::{AnalysisEngine, CaptureJob, JobReport, SensorOptions};
 use tracehound_eval::store::{self, HistoryEntry, ReportComparison, ReportDocument, ReportStore};
+use tracehound_eval::streaming::{
+    RustLiveOptions, RustLiveSession, RustLiveSnapshot, RustLiveState, StreamOptions, StreamSummary,
+};
 use tracehound_eval::suite::{SuiteJob, SuiteReport};
 use tracehound_eval::{EvaluationReport, Finding, Severity};
+#[path = "desktop/investigation.rs"]
+mod investigation_ui;
+#[path = "desktop/smoke.rs"]
+mod native_smoke;
+use investigation_ui::{CasePath, InvestigationUi};
 
 fn main() -> eframe::Result {
-    eframe::run_native(
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
+        println!("Tracehound desktop\nUsage: tracehound-desktop [CAPTURE]\n       tracehound-desktop --smoke-test [--smoke-timeout SECONDS]\n       tracehound-desktop --smoke-case CASE.db --smoke-output NEW.png --smoke-exit\n\nA startup capture is selected without automatic analysis. Smoke modes explicitly render a native window, then exit; case screenshots require a new output path.");
+        return Ok(());
+    }
+    if args.len() == 1 && args[0] == "--version" {
+        println!("Tracehound desktop {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    let startup = match native_smoke::parse(args) {
+        Ok(startup) => startup,
+        Err(error) => {
+            eprintln!("Tracehound: {error}");
+            std::process::exit(2);
+        }
+    };
+    let outcome = startup
+        .smoke
+        .as_ref()
+        .map(|_| Arc::new(std::sync::atomic::AtomicI32::new(2)));
+    let smoke_outcome = outcome.clone();
+    let result = eframe::run_native(
         "Tracehound",
         eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
@@ -27,13 +56,37 @@ fn main() -> eframe::Result {
                 .with_drag_and_drop(true),
             ..Default::default()
         },
-        Box::new(|_| Ok(Box::new(Desktop::default()))),
-    )
+        Box::new(move |_| {
+            let mut desktop = Desktop::default();
+            if let Some(capture) = startup.capture {
+                desktop.capture = capture.to_string_lossy().into_owned();
+            }
+            if let Some(config) = startup.smoke {
+                if let Some(case) = &config.case {
+                    desktop.page = Page::Investigation;
+                    desktop.investigation.open_case(case.clone());
+                }
+                desktop.smoke = Some(native_smoke::NativeSmoke::new(
+                    config,
+                    smoke_outcome.expect("smoke outcome exists"),
+                ));
+            }
+            Ok(Box::new(desktop))
+        }),
+    );
+    if let Some(outcome) = outcome {
+        if let Err(error) = &result {
+            eprintln!("Native GUI initialization failed: {error}");
+        }
+        std::process::exit(outcome.load(Ordering::Acquire));
+    }
+    result
 }
 
 #[derive(Clone, Copy, PartialEq)]
 enum Page {
     Capture,
+    Investigation,
     Suite,
     Live,
     Reports,
@@ -47,23 +100,27 @@ enum ResultPage {
 }
 #[derive(Clone, Copy, PartialEq)]
 enum LiveMode {
+    Rust,
     Native,
     Recording,
 }
 
 enum Task {
+    Rust(Arc<RustLiveSession>),
     Capture(CaptureJob),
     Suite(SuiteJob),
     Native(LiveSession),
     Recording(Arc<PortableRecording>),
 }
 enum CompletedReport {
+    Rust(Arc<StreamSummary>, PathBuf),
     Capture(Arc<JobReport>),
     Suite(Arc<SuiteReport>),
 }
 impl Task {
     fn active(&self) -> bool {
         match self {
+            Self::Rust(job) => !job.finished(),
             Self::Capture(job) => !job.snapshot().state.is_terminal(),
             Self::Suite(job) => !job.snapshot().state.is_terminal(),
             Self::Native(job) => !job.finished(),
@@ -72,6 +129,9 @@ impl Task {
     }
     fn cancel(&self) {
         match self {
+            Self::Rust(job) => {
+                job.cancel();
+            }
             Self::Capture(job) => {
                 job.cancel();
             }
@@ -88,6 +148,7 @@ impl Task {
     }
     fn cancelled(&self) -> bool {
         match self {
+            Self::Rust(job) => job.snapshot().state == RustLiveState::Cancelled,
             Self::Capture(job) => {
                 job.snapshot().state == tracehound_eval::runtime::JobState::Cancelled
             }
@@ -113,10 +174,18 @@ enum Input {
     Export,
     Raw,
     History,
+    CaseCapture,
+    CaseDestination,
+    CaseOpen,
+    CaseExport,
+    CasePacketExport,
+    CaseBaseline,
+    Wireshark,
+    CaseSource,
 }
 impl Input {
     fn directory(self) -> bool {
-        matches!(self, Self::Rules | Self::History)
+        matches!(self, Self::Rules | Self::History | Self::CaseExport)
     }
     fn title(self) -> &'static str {
         match self {
@@ -131,6 +200,14 @@ impl Input {
             Self::Export => "Choose a report destination",
             Self::Raw => "Choose a capture destination",
             Self::History => "Choose a report history directory",
+            Self::CaseCapture => "Choose an original packet capture",
+            Self::CaseDestination => "Choose a new investigation case file",
+            Self::CaseOpen => "Open a saved investigation",
+            Self::CaseExport => "Choose an investigation export directory",
+            Self::CasePacketExport => "Choose a new packet extraction file",
+            Self::CaseBaseline => "Choose a baseline investigation",
+            Self::Wireshark => "Choose Wireshark",
+            Self::CaseSource => "Locate the original capture",
         }
     }
 }
@@ -158,6 +235,7 @@ enum Work {
     Feed(PathBuf, String),
     Context(u64, [Vec<usize>; 3]),
     Filtered(u64, Vec<usize>),
+    CaptureSaved(PathBuf),
 }
 struct Worker {
     receiver: mpsc::Receiver<Result<Work, String>>,
@@ -165,11 +243,13 @@ struct Worker {
 }
 
 struct Desktop {
+    smoke: Option<native_smoke::NativeSmoke>,
     page: Page,
     result_page: ResultPage,
     capture: String,
     suite: String,
     sensor: String,
+    analysis_engine: AnalysisEngine,
     rules: String,
     home_nets: String,
     feed: String,
@@ -209,22 +289,29 @@ struct Desktop {
     max_seconds: u32,
     promiscuous: bool,
     live_snapshot: Option<LiveSnapshot>,
+    rust_snapshot: Option<RustLiveSnapshot>,
+    process_attribution: bool,
+    rust_selected: Option<usize>,
+    rust_flow: Option<usize>,
     picker: Option<Picker>,
     picker_generation: u64,
     error: Option<String>,
     notice: Option<String>,
     closing: bool,
     cancel_pending_start: bool,
+    investigation: InvestigationUi,
 }
 
 impl Default for Desktop {
     fn default() -> Self {
         Self {
+            smoke: None,
             page: Page::Capture,
             result_page: ResultPage::Findings,
             capture: String::new(),
             suite: String::new(),
             sensor: find_sensor().to_string_lossy().into_owned(),
+            analysis_engine: AnalysisEngine::Rust,
             rules: String::new(),
             home_nets: String::new(),
             feed: String::new(),
@@ -258,11 +345,7 @@ impl Default for Desktop {
             open_path: String::new(),
             baseline: String::new(),
             comparison: None,
-            live_mode: if cfg!(target_os = "linux") {
-                LiveMode::Native
-            } else {
-                LiveMode::Recording
-            },
+            live_mode: LiveMode::Rust,
             helper: String::new(),
             interfaces: Vec::new(),
             interface: String::new(),
@@ -271,12 +354,17 @@ impl Default for Desktop {
             max_seconds: 3600,
             promiscuous: false,
             live_snapshot: None,
+            rust_snapshot: None,
+            process_attribution: false,
+            rust_selected: None,
+            rust_flow: None,
             picker: None,
             picker_generation: 0,
             error: None,
             notice: None,
             closing: false,
             cancel_pending_start: false,
+            investigation: InvestigationUi::default(),
         }
     }
 }
@@ -285,15 +373,45 @@ impl Desktop {
     fn active(&self) -> bool {
         self.workers.iter().any(|worker| worker.starting)
             || self.task.as_ref().is_some_and(Task::active)
+            || self.investigation.active()
     }
     fn busy(&self) -> bool {
-        self.active() || !self.workers.is_empty()
+        self.active()
+            || !self.workers.is_empty()
+            || self.investigation.busy()
+            || self
+                .smoke
+                .as_ref()
+                .is_some_and(native_smoke::NativeSmoke::writing)
+    }
+    fn stream_options(&self) -> Result<StreamOptions, String> {
+        let mut options = StreamOptions {
+            rules: optional_path(&self.rules),
+            pair_feed: optional_path(&self.feed),
+            min_severity: self.floor,
+            ..StreamOptions::default()
+        };
+        options.limits.max_alert_records = self.max_alerts as u64;
+        if !self.home_nets.trim().is_empty() {
+            options.home_nets = self
+                .home_nets
+                .split(',')
+                .map(|value| {
+                    value
+                        .trim()
+                        .parse()
+                        .map_err(|e| format!("Invalid internal network {value:?}: {e}"))
+                })
+                .collect::<Result<_, _>>()?;
+        }
+        Ok(options)
     }
     fn options(&self) -> Result<SensorOptions, String> {
-        if self.sensor.trim().is_empty() {
+        if self.analysis_engine == AnalysisEngine::Sensor && self.sensor.trim().is_empty() {
             return Err("Choose the Tracehound executable in Settings.".into());
         }
         Ok(SensorOptions {
+            engine: self.analysis_engine,
             executable: OsString::from(self.sensor.trim()),
             rules: optional_path(&self.rules),
             home_nets: non_empty(&self.home_nets).map(OsString::from),
@@ -345,7 +463,11 @@ impl Desktop {
         });
     }
     fn begin_live(&mut self) {
-        let options = match self.options() {
+        let options = match if self.live_mode == LiveMode::Rust {
+            Ok(SensorOptions::default())
+        } else {
+            self.options()
+        } {
             Ok(value) => value,
             Err(error) => {
                 self.error = Some(error);
@@ -356,7 +478,7 @@ impl Desktop {
             self.error = Some("Discover and choose a capture interface first.".into());
             return;
         }
-        if self.live_mode == LiveMode::Recording && self.helper.trim().is_empty() {
+        if self.live_mode != LiveMode::Native && self.helper.trim().is_empty() {
             self.error = Some("Find an installed dumpcap helper first.".into());
             return;
         }
@@ -373,8 +495,25 @@ impl Desktop {
             max_seconds: self.max_seconds,
         };
         let filter = non_empty(&self.bpf).map(str::to_owned);
+        let analysis = match self.stream_options() {
+            Ok(options) => options,
+            Err(error) => {
+                self.error = Some(error);
+                return;
+            }
+        };
+        let process_attribution = self.process_attribution;
         self.work(true, move || {
             Ok(Work::Started(Box::new(match mode {
+                LiveMode::Rust => Task::Rust(Arc::new(RustLiveSession::start(RustLiveOptions {
+                    capture_tool: helper,
+                    interface,
+                    filter,
+                    promiscuous,
+                    recording_limits: limits,
+                    analysis,
+                    process_attribution,
+                })?)),
                 LiveMode::Native => {
                     Task::Native(LiveSession::start(options, interface, promiscuous)?)
                 }
@@ -415,6 +554,7 @@ impl Desktop {
         }
     }
     fn poll(&mut self) {
+        self.investigation.poll();
         let mut completed = Vec::new();
         for (index, worker) in self.workers.iter().enumerate() {
             match worker.receiver.try_recv() {
@@ -445,6 +585,9 @@ impl Desktop {
                     self.task = Some(*task);
                     self.collected = false;
                     self.live_snapshot = None;
+                    self.rust_snapshot = None;
+                    self.rust_selected = None;
+                    self.rust_flow = None;
                     self.result = None;
                     self.filtered.clear();
                     self.selected = None;
@@ -463,6 +606,13 @@ impl Desktop {
                     self.error = None;
                 }
                 Ok(Work::History(entries)) => self.history = entries,
+                Ok(Work::CaptureSaved(path)) => {
+                    self.raw = path.to_string_lossy().into_owned();
+                    self.investigation.source = self.raw.clone();
+                    self.investigation.destination =
+                        path.with_extension("thcase").to_string_lossy().into_owned();
+                    self.notice=Some("Original live capture saved. Investigate hosts can now build a persistent case from this file.".into());
+                }
                 Ok(Work::Compared(before, after, comparison)) => {
                     self.comparison = Some((before, after, comparison))
                 }
@@ -521,6 +671,25 @@ impl Desktop {
         let mut result = None;
         if let Some(task) = &self.task {
             match task {
+                Task::Rust(job) => {
+                    let progress = job.snapshot();
+                    self.status = format!(
+                        "{:?} · {} packets · {} findings · {:.1}s",
+                        progress.state,
+                        progress.stats.packets,
+                        progress.stats.findings,
+                        progress.elapsed_ms as f64 / 1000.0
+                    );
+                    if !self.collected {
+                        if let Some(outcome) = job.try_result() {
+                            self.collected = true;
+                            let path = job.retained_capture_path().unwrap_or_default();
+                            result =
+                                Some(outcome.map(|report| CompletedReport::Rust(report, path)));
+                        }
+                    }
+                    self.rust_snapshot = Some(progress);
+                }
                 Task::Capture(job) => {
                     let progress = job.snapshot();
                     self.status = format!(
@@ -601,6 +770,7 @@ impl Desktop {
             match outcome {
                 Ok(completed) => self.work(true, move || {
                     Ok(Work::Ready(Arc::new(match completed {
+                        CompletedReport::Rust(summary,path)=>ReportDocument::Analysis(tracehound_eval::runtime::CaptureReport {capture:path,report:summary.report.clone(),enrichment:serde_json::json!({"analysis_meta":summary.analysis_meta,"diagnostics":summary.diagnostics,"policy_notes":summary.policy_notes,"stats":summary.stats,"engine":"rust","capture_retention":"temporary_until_saved"})}),
                         CompletedReport::Capture(report) => document_from_job(&report),
                         CompletedReport::Suite(report) => {
                             ReportDocument::Suite(Box::new(report.as_ref().clone()))
@@ -706,6 +876,14 @@ impl Desktop {
             Input::Export => &mut self.export,
             Input::Raw => &mut self.raw,
             Input::History => &mut self.history_root,
+            Input::CaseCapture => &mut self.investigation.source,
+            Input::CaseDestination => &mut self.investigation.destination,
+            Input::CaseOpen => &mut self.investigation.open,
+            Input::CaseExport => &mut self.investigation.export,
+            Input::CasePacketExport => &mut self.investigation.packet_export,
+            Input::CaseBaseline => &mut self.investigation.baseline,
+            Input::Wireshark => &mut self.investigation.wireshark,
+            Input::CaseSource => &mut self.investigation.original_override,
         }
     }
     fn path_input(&mut self, ui: &mut egui::Ui, target: Input, label: &str, hint: &str) {
@@ -815,6 +993,33 @@ impl Desktop {
 }
 
 impl Desktop {
+    fn investigation_page(&mut self, ui: &mut egui::Ui) {
+        let options = self.stream_options();
+        let disabled = self.closing
+            || self.task.as_ref().is_some_and(Task::active)
+            || self.workers.iter().any(|worker| worker.starting);
+        ui.add_enabled_ui(!self.closing, |ui| {
+            self.investigation.ui(
+                ui,
+                options,
+                Duration::from_secs(self.timeout),
+                &self.capture,
+                disabled,
+            )
+        });
+        if let Some(target) = self.investigation.take_browse() {
+            self.browse(match target {
+                CasePath::Capture => Input::CaseCapture,
+                CasePath::Destination => Input::CaseDestination,
+                CasePath::Open => Input::CaseOpen,
+                CasePath::Export => Input::CaseExport,
+                CasePath::PacketExport => Input::CasePacketExport,
+                CasePath::Baseline => Input::CaseBaseline,
+                CasePath::Wireshark => Input::Wireshark,
+                CasePath::Source => Input::CaseSource,
+            });
+        }
+    }
     fn capture_page(&mut self, ui: &mut egui::Ui) {
         ui.heading("Analyse a capture");
         ui.label("Open a real PCAP or PCAPNG capture. Drop a file here or choose it below.");
@@ -828,7 +1033,7 @@ impl Desktop {
                 }
             });
         });
-        ui.small("Sensor findings describe observed behaviour. Evaluation labels are needed to measure detection accuracy.");
+        ui.small("Findings describe observed behaviour. Evaluation labels are needed to measure detection accuracy.");
     }
     fn suite_page(&mut self, ui: &mut egui::Ui) {
         ui.heading("Evaluate labelled captures");
@@ -854,12 +1059,13 @@ impl Desktop {
         ui.add_enabled_ui(!self.active() && !self.closing, |ui| {
             let old_mode = self.live_mode;
             ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.live_mode, LiveMode::Rust, "Rust live analysis");
                 ui.add_enabled_ui(cfg!(target_os = "linux"), |ui| { ui.selectable_value(&mut self.live_mode, LiveMode::Native, "Linux live analysis"); });
                 ui.selectable_value(&mut self.live_mode, LiveMode::Recording, "Record, then analyse");
             });
             if old_mode != self.live_mode { self.interfaces.clear(); self.interface.clear(); }
-            if self.live_mode == LiveMode::Recording {
-                ui.label("Uses an existing dumpcap installation. Findings become available after recording stops and the complete file is analysed.");
+            if self.live_mode != LiveMode::Native {
+                ui.label(if self.live_mode==LiveMode::Rust {"Uses an installed dumpcap to stream packets directly into the shared Rust analysis engine. Findings, devices and flows update while capture runs."}else{"Uses an existing dumpcap installation. Findings become available after recording stops and the complete file is analysed."});
                 self.path_input(ui, Input::Helper, "Capture helper (optional until discovery)", "Path to dumpcap; Discover checks existing installations");
             } else {
                 ui.label("The Linux sensor streams recent findings and polls local inventory. Packet capture requires CAP_NET_RAW or equivalent permissions.");
@@ -871,14 +1077,55 @@ impl Desktop {
                     for entry in &self.interfaces { ui.selectable_value(&mut self.interface, entry.id.clone(), &entry.name); }
                 });
             });
-            if self.live_mode == LiveMode::Recording {
+            if self.live_mode != LiveMode::Native {
                 let label = ui.label("Capture filter (BPF, optional)");
                 ui.add(egui::TextEdit::singleline(&mut self.bpf).hint_text("host 192.168.1.10 or udp port 53").desired_width(f32::INFINITY)).labelled_by(label.id);
                 ui.horizontal(|ui| { ui.label("Stop at MiB"); ui.add(egui::DragValue::new(&mut self.max_mebibytes).range(1..=4096)); ui.label("or seconds"); ui.add(egui::DragValue::new(&mut self.max_seconds).range(1..=86_400)); });
-                ui.small("Recording uses non-promiscuous mode and stops at either bound. Only traffic permitted by the selected filter is recorded.");
+                ui.small("Capture stops at either bound. Only traffic permitted by the selected filter is recorded.");
+                if self.live_mode==LiveMode::Rust{
+                    ui.checkbox(&mut self.promiscuous,"Promiscuous mode");
+                    ui.checkbox(&mut self.process_attribution,"Associate local live sockets with process owners");
+                    ui.small("Process association is optional, limited to this computer's live sockets, and can be unavailable or race with short-lived connections. Captures from files do not receive process attribution.");
+                }
             } else { ui.checkbox(&mut self.promiscuous, "Promiscuous mode"); }
-            if ui.button(if self.live_mode == LiveMode::Native { "Start live analysis" } else { "Start recording" }).clicked() { self.begin_live(); }
+            if ui.button(if self.live_mode == LiveMode::Recording { "Start recording" } else { "Start live analysis" }).clicked() { self.begin_live(); }
         });
+        if let Some(Task::Rust(job)) = &self.task {
+            let state = job.snapshot().state;
+            if matches!(state, RustLiveState::Starting | RustLiveState::Running)
+                && ui.button("Stop capture and finish analysis").clicked()
+            {
+                job.stop();
+            }
+            if state == RustLiveState::Completed {
+                self.path_input(
+                    ui,
+                    Input::Raw,
+                    "Save original live capture",
+                    "Choose a new .pcap file before replacing this session",
+                );
+                if ui
+                    .add_enabled(
+                        !self.raw.trim().is_empty() && !self.closing,
+                        egui::Button::new("Save original capture"),
+                    )
+                    .clicked()
+                {
+                    if let Some(Task::Rust(job)) = &self.task {
+                        let job = Arc::clone(job);
+                        let path = PathBuf::from(self.raw.trim());
+                        self.work(false, move || {
+                            job.save_capture(&path)?;
+                            Ok(Work::CaptureSaved(path))
+                        });
+                    }
+                }
+                ui.small("The private recording is removed when this session is replaced or the application closes. Save the original capture before creating a persistent investigation.");
+            }
+        }
+        if let Some(snapshot) = self.rust_snapshot.clone() {
+            self.rust_live_results(ui, &snapshot);
+        }
         if let Some(Task::Recording(job)) = &self.task {
             let state = job.snapshot().state;
             if state == RecordingState::Recording
@@ -945,11 +1192,126 @@ impl Desktop {
                                 severity_color(ui, alert.severity),
                                 format!("{} · {} · {}", alert.severity, alert.rule_id, alert.title),
                             );
-                            ui.label(format!("{} → {}", address(alert.src), address(alert.dst)));
+                            ui.label(format!("{} -> {}", address(alert.src), address(alert.dst)));
                         }
                     });
             });
         }
+    }
+    fn rust_live_results(&mut self, ui: &mut egui::Ui, snapshot: &RustLiveSnapshot) {
+        ui.separator();
+        ui.strong(format!(
+            "{} · {} original packets · {:.2} MiB recorded",
+            snapshot.interface,
+            snapshot.stats.packets,
+            snapshot.capture_bytes as f64 / 1_048_576.0
+        ));
+        ui.label(&snapshot.process_status);
+        if let Some(error) = &snapshot.error {
+            ui.colored_label(severity_color(ui, Severity::High), error);
+        }
+        ui.small(format!("Recent view: {} findings, {} devices and {} flows; up to {} entries per collection. {} earlier alert records are outside this view. Completed reports retain the bounded full analysis.",snapshot.findings.len(),snapshot.devices.len(),snapshot.flows.len(),snapshot.snapshot_entry_limit,snapshot.earlier_alert_records));
+        ui.collapsing("Live findings", |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("rust-live-findings")
+                .max_height(360.0)
+                .show_rows(ui, 58.0, snapshot.findings.len(), |ui, range| {
+                    for index in range {
+                        let alert = &snapshot.findings[index];
+                        if ui
+                            .selectable_label(
+                                self.rust_selected == Some(index),
+                                RichText::new(format!(
+                                    "{} · {} · {}",
+                                    alert.severity, alert.rule_id, alert.title
+                                ))
+                                .color(severity_color(ui, alert.severity)),
+                            )
+                            .clicked()
+                        {
+                            self.rust_selected = Some(index);
+                        }
+                        ui.label(format!("{} -> {}", address(alert.src), address(alert.dst)));
+                    }
+                });
+            if let Some(alert) = self
+                .rust_selected
+                .and_then(|index| snapshot.findings.get(index))
+            {
+                ui.strong("Selected live finding");
+                json_details(ui, &alert.evidence);
+            }
+        });
+        ui.collapsing(
+            format!("Observed devices ({})", snapshot.devices.len()),
+            |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("rust-live-devices")
+                    .max_height(280.0)
+                    .show_rows(ui, 44.0, snapshot.devices.len(), |ui, range| {
+                        for index in range {
+                            let device = &snapshot.devices[index];
+                            ui.strong(device.address.to_string());
+                            ui.small(format!(
+                                "{} packets · {} client fingerprints",
+                                device.packets,
+                                device.fingerprints.len()
+                            ));
+                        }
+                    });
+            },
+        );
+        ui.collapsing(format!("Recent flows ({})", snapshot.flows.len()), |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("rust-live-flows")
+                .max_height(280.0)
+                .show_rows(ui, 48.0, snapshot.flows.len(), |ui, range| {
+                    for index in range {
+                        let flow = &snapshot.flows[index];
+                        if ui
+                            .selectable_label(
+                                self.rust_flow == Some(index),
+                                format!(
+                                    "{} -> {} · {}",
+                                    flow.client,
+                                    flow.server,
+                                    if flow.protocol == 6 { "TCP" } else { "UDP" }
+                                ),
+                            )
+                            .clicked()
+                        {
+                            self.rust_flow = Some(index);
+                        }
+                        ui.small(format!(
+                            "{} outbound / {} inbound bytes{}",
+                            flow.bytes_out,
+                            flow.bytes_in,
+                            flow.server_name
+                                .as_deref()
+                                .map(|name| format!(" · {name}"))
+                                .unwrap_or_default()
+                        ));
+                    }
+                });
+            if let Some(flow) = self.rust_flow.and_then(|index| snapshot.flows.get(index)) {
+                ui.strong("Selected flow and local process associations");
+                if let Ok(value) = serde_json::to_value(flow) {
+                    json_details(ui, &value);
+                }
+            }
+        });
+        ui.collapsing("Statistics, diagnostics and analysis configuration", |ui| {
+            for warning in &snapshot.warnings {
+                ui.label(warning);
+            }
+            if let Ok(value) = serde_json::to_value(&snapshot.stats) {
+                json_details(ui, &value);
+            }
+            if let Ok(value) = serde_json::to_value(&snapshot.diagnostics) {
+                json_details(ui, &value);
+            }
+            json_details(ui, &snapshot.analysis_meta);
+        });
     }
     fn reports_page(&mut self, ui: &mut egui::Ui) {
         ui.heading("Reports and history");
@@ -1049,7 +1411,7 @@ impl Desktop {
             });
         }
         if let Some((before, after, comparison)) = &self.comparison {
-            ui.strong(format!("{} → {}", before, after));
+            ui.strong(format!("{} -> {}", before, after));
             ui.label(format!(
                 "{} added · {} removed · {} changed · {} unchanged",
                 comparison.added.len(),
@@ -1103,6 +1465,7 @@ impl Desktop {
         ui.heading("Analysis settings");
         ui.label("Settings apply to new jobs. Captures, reports, and fingerprint feeds stay on this computer.");
         ui.add_enabled_ui(!self.active() && !self.closing, |ui| {
+            ui.horizontal_wrapped(|ui|{ui.label("Capture-file engine");ui.selectable_value(&mut self.analysis_engine,AnalysisEngine::Rust,"Built-in Rust");ui.selectable_value(&mut self.analysis_engine,AnalysisEngine::Sensor,"Legacy sensor");});
             self.path_input(ui, Input::Sensor, "Tracehound executable", "Full path or executable name on PATH");
             self.path_input(ui, Input::Rules, "Custom rule directory (optional)", "Leave empty to use bundled rules");
             let label = ui.label("Internal networks (optional, comma-separated CIDRs)");
@@ -1121,7 +1484,7 @@ impl Desktop {
             });
             ui.hyperlink_to("Publisher mapping and terms", feed::PUBLIC_MAPPING_URL);
             ui.small("Downloading is explicit and requires a new destination file. Publisher terms apply; no publisher database is bundled. Pair matches are associations that require supporting evidence.");
-            ui.small("Local pair feeds apply to capture-file analysis and completed recordings. The Linux live stream shows the sensor's live rules.");
+            ui.small("Local pair feeds apply to Rust live analysis, capture-file analysis and completed recordings. The legacy Linux stream shows the sensor's own live rules.");
         });
     }
 }
@@ -1148,6 +1511,9 @@ impl Desktop {
                     json_rows(ui, "corpus-provenance", &corpus.sources, "");
                 },
             );
+            if let Some(validation) = &corpus.validation {
+                validation_details(ui, validation);
+            }
         }
         if let Some(suite) = labelled_suite(&document) {
             if suite.captures.is_empty() {
@@ -1300,7 +1666,7 @@ impl Desktop {
                         let index = self.filtered[position];
                         let finding = &values[index];
                         let text = format!(
-                            "{} · {} · {} occurrence(s)\n{}\n{} → {}",
+                            "{} · {} · {} occurrence(s)\n{}\n{} -> {}",
                             finding.alert.severity.to_string().to_uppercase(),
                             finding.alert.rule_id,
                             finding.occurrences,
@@ -1416,6 +1782,7 @@ impl eframe::App for Desktop {
             if let Some(task) = &self.task {
                 task.cancel();
             }
+            self.investigation.cancel();
         }
         if self.closing && !self.busy() {
             self.closing = false;
@@ -1436,6 +1803,7 @@ impl eframe::App for Desktop {
             if files.len() == 1 {
                 let path = files[0].to_string_lossy().into_owned();
                 match self.page {
+                    Page::Investigation => self.investigation.source = path,
                     Page::Suite => self.suite = path,
                     Page::Reports => self.open_path = path,
                     _ => {
@@ -1453,6 +1821,7 @@ impl eframe::App for Desktop {
                 ui.add_space(15.0);
                 for (page, title) in [
                     (Page::Capture, "Analyse"),
+                    (Page::Investigation, "Investigate hosts"),
                     (Page::Suite, "Evaluate"),
                     (Page::Live, "Capture traffic"),
                     (Page::Reports, "Reports"),
@@ -1478,6 +1847,7 @@ impl eframe::App for Desktop {
                     if let Some(task) = &self.task {
                         task.cancel();
                     }
+                    self.investigation.cancel();
                 }
             });
             if self.closing {
@@ -1501,18 +1871,23 @@ impl eframe::App for Desktop {
                     ui.add_space(8.0);
                     match self.page {
                         Page::Capture => self.capture_page(ui),
+                        Page::Investigation => self.investigation_page(ui),
                         Page::Suite => self.suite_page(ui),
                         Page::Live => self.live_page(ui),
                         Page::Reports => self.reports_page(ui),
                         Page::Settings => self.settings_page(ui),
                     }
-                    if !matches!(self.page, Page::Settings) {
+                    if !matches!(self.page, Page::Settings | Page::Investigation) {
                         self.results(ui);
                     }
                 });
         });
         let ctx = ui.ctx().clone();
         self.picker(&ctx);
+        if let Some(mut smoke) = self.smoke.take() {
+            smoke.advance(self, &ctx);
+            self.smoke = Some(smoke);
+        }
     }
 }
 
@@ -1631,6 +2006,26 @@ fn percent(value: Option<f64>) -> String {
         .map(|value| format!("{:.1}%", value * 100.0))
         .unwrap_or_else(|| "not defined".into())
 }
+fn validation_details(
+    ui: &mut egui::Ui,
+    validation: &tracehound_eval::validation::ValidationSummary,
+) {
+    ui.collapsing("Per-rule labelled recall and reviewed benign exposure",|ui|{
+        egui::ScrollArea::horizontal().id_salt("rule-validation-metrics").show(ui,|ui|{
+            egui::Grid::new("per-rule-validation").striped(true).show(ui,|ui|{
+                for heading in ["Rule","Labelled recall","Matched / missed","Unexpected findings","Benign alert records / host-hour","Reviewed host-hours"]{ui.strong(heading);}ui.end_row();
+                for rule in &validation.per_rule{
+                    ui.label(&rule.rule_id);ui.label(percent(rule.labelled_recall));ui.label(format!("{} / {}",rule.matched_behaviours,rule.missed_behaviours));ui.label(rule.unexpected_unique_findings.to_string());
+                    ui.label(rule.benign_alert_records_per_host_hour.map(|value|format!("{value:.3}")).unwrap_or_else(||"undefined".into()));
+                    ui.label(rule.monitored_benign_host_hours.map(|value|format!("{value:.4}")).unwrap_or_else(||"not supplied".into()));ui.end_row();
+                }
+            });
+        });
+        for note in &validation.interpretation{ui.small(note);}
+        ui.small("Undefined rates indicate missing reviewed exposure. Unexpected findings in labelled captures are not automatically confirmed false positives.");
+        for rule in &validation.per_rule{ui.collapsing(format!("{} counts and exposure provenance",rule.rule_id),|ui|{if let Ok(value)=serde_json::to_value(rule){json_details(ui,&value);}});}
+    });
+}
 fn evaluation_details(ui: &mut egui::Ui, report: &EvaluationReport) {
     ui.strong(format!(
         "{} · {}",
@@ -1655,7 +2050,7 @@ fn evaluation_details(ui: &mut egui::Ui, report: &EvaluationReport) {
         |ui| {
             for entry in &report.missed_expectations {
                 ui.label(format!(
-                    "{} · {} → {}",
+                    "{} · {} -> {}",
                     entry.rule_id,
                     entry.src,
                     address(entry.dst)
@@ -1671,7 +2066,7 @@ fn evaluation_details(ui: &mut egui::Ui, report: &EvaluationReport) {
         |ui| {
             for entry in &report.matched_expectations {
                 ui.label(format!(
-                    "{} · {} → {}",
+                    "{} · {} -> {}",
                     entry.rule_id,
                     entry.src,
                     address(entry.dst)
@@ -1690,7 +2085,7 @@ fn evaluation_details(ui: &mut egui::Ui, report: &EvaluationReport) {
 }
 fn comparison_finding(ui: &mut egui::Ui, symbol: &str, case: Option<&str>, finding: &Finding) {
     ui.label(format!(
-        "{symbol} {}{} · {} · {} → {} · {} occurrence(s)",
+        "{symbol} {}{} · {} · {} -> {} · {} occurrence(s)",
         case.map(|name| format!("{name}: ")).unwrap_or_default(),
         finding.alert.rule_id,
         finding.alert.title,
@@ -1714,7 +2109,7 @@ fn finding_details(ui: &mut egui::Ui, finding: &Finding) {
         ui.label(description);
     }
     if let Some(score) = alert.score {
-        ui.label(format!("Sensor confidence: {score:.2}"));
+        ui.label(format!("Detector score: {score:.2}"));
     }
     if let Some(time) = &alert.time {
         ui.label(format!("Latest observation: {time}"));
@@ -2001,6 +2396,7 @@ mod tests {
             sources: sources.clone(),
             evaluation: suite.clone(),
             observations: vec![observed],
+            validation: None,
         }));
         let serialized = serde_json::to_value(&corpus).unwrap();
         assert_eq!(serialized["sources"], json!(sources));
@@ -2035,6 +2431,7 @@ mod tests {
                 }
                 for page in [
                     Page::Capture,
+                    Page::Investigation,
                     Page::Suite,
                     Page::Live,
                     Page::Reports,
@@ -2050,6 +2447,7 @@ mod tests {
                             egui::CentralPanel::default().show(ui, |ui| {
                                 match page {
                                     Page::Capture => desktop.capture_page(ui),
+                                    Page::Investigation => desktop.investigation_page(ui),
                                     Page::Suite => desktop.suite_page(ui),
                                     Page::Live => desktop.live_page(ui),
                                     Page::Reports => desktop.reports_page(ui),

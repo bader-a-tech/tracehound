@@ -1,9 +1,83 @@
 use std::fs;
-use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracehound_eval::{capture::DnsObservation, dns::DnsPolicy, Severity};
+
+#[test]
+fn incremental_dns_keeps_working_after_the_offline_observation_limit() {
+    use tracehound_eval::{capture::PacketRef, dns::DnsAnalyzer};
+    let mut analyzer = DnsAnalyzer::new(DnsPolicy::load(None).unwrap());
+    for index in 0..50_010 {
+        let query = DnsObservation {
+            src: "10.1.2.3".parse().unwrap(),
+            dst: "192.0.2.53".parse().unwrap(),
+            name: "www.example.com".into(),
+            query_type: 1,
+            timestamp_ms: index,
+            ..Default::default()
+        };
+        assert!(analyzer.observe(&query).is_empty());
+    }
+    let mut alerts = Vec::new();
+    for (index, mut query) in queries("attacker.net", 45, 60_000, 1000)
+        .into_iter()
+        .enumerate()
+    {
+        query.packets = vec![PacketRef {
+            number: 50_011 + index as u64,
+            timestamp_ns: query.timestamp_ms * 1_000_000,
+            ..Default::default()
+        }];
+        alerts.extend(analyzer.observe(&query));
+    }
+    alerts.extend(analyzer.tick(110_000));
+    assert!(alerts
+        .iter()
+        .any(|alert| alert.evidence["domain"] == "attacker.net"));
+    let finding = alerts
+        .iter()
+        .find(|alert| alert.evidence["domain"] == "attacker.net")
+        .unwrap();
+    assert!(!finding.extra["packets"].as_array().unwrap().is_empty());
+    assert!(finding.extra["window_start_ms"].as_u64().unwrap() >= 60_000);
+    analyzer.tick(4_000_000);
+    assert_eq!(analyzer.tracked_domains(), 0);
+    let late = queries("attacker.net", 1, 1000, 1000).remove(0);
+    assert!(analyzer.observe(&late).is_empty());
+    assert_eq!(analyzer.dropped_out_of_order, 1);
+}
+
+#[test]
+fn global_name_budget_is_bounded_disclosed_and_reclaimed_after_expiry() {
+    use tracehound_eval::dns::DnsAnalyzer;
+    let rules = Rules::new(&rule("tuning:\n  min_queries: 3\n  history: 1s\n"));
+    let mut analyzer = DnsAnalyzer::with_name_budget(rules.load().unwrap(), 4).unwrap();
+    let mut alerts = Vec::new();
+    for query in queries("alpha.example.com", 12, 1000, 10)
+        .into_iter()
+        .chain(queries("beta.example.net", 12, 1200, 10))
+    {
+        alerts.extend(analyzer.observe(&query));
+        assert!(analyzer.retained_names() <= 4);
+    }
+    alerts.extend(analyzer.tick(1500));
+    // The configured score interval need not have elapsed; finish uses exactly
+    // the same retained state and reports the uncertainty from dropped names.
+    assert!(analyzer.dropped_name_events >= 20);
+    analyzer.tick(40_000);
+    assert_eq!(analyzer.retained_names(), 0);
+    let later = queries("later.example.org", 6, 41_000, 10);
+    for query in &later {
+        alerts.extend(analyzer.observe(query));
+        assert!(analyzer.retained_names() <= 4);
+    }
+    alerts.extend(analyzer.finish());
+    assert!(alerts
+        .iter()
+        .any(|alert| alert.evidence["name_retention_limited"] == true
+            && alert.evidence["unique_ratio_is_lower_bound"] == true));
+}
 
 static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
@@ -43,6 +117,7 @@ fn queries(domain: &str, count: usize, start: u64, step: u64) -> Vec<DnsObservat
             name: format!("{i:04x}abcdefghijklmnopqrstuvwxyz0123456789abcdefghij.{domain}"),
             query_type: 16,
             timestamp_ms: start + i as u64 * step,
+            ..Default::default()
         })
         .collect()
 }
@@ -212,9 +287,54 @@ fn unique_name_and_track_caps_are_enforced() {
     let custom = Rules::new(&rule("tuning:\n  max_unique_names: 3\n  max_tracked: 1\n"));
     let mut data = queries("first.example.com", 40, 0, 1_000);
     data.extend(queries("second.example.net", 40, 0, 1_000));
-    let alerts = custom.load().unwrap().detect(&data);
-    assert_eq!(alerts.len(), 1);
-    assert_eq!(alerts[0].evidence["unique_names"], 3);
-    assert_eq!(alerts[0].evidence["unique_ratio"], 1.0);
-    assert_eq!(alerts[0].src, Some("10.1.2.3".parse::<IpAddr>().unwrap()));
+    data.sort_by_key(|query| query.timestamp_ms);
+    let mut analyzer = tracehound_eval::dns::DnsAnalyzer::new(custom.load().unwrap());
+    let mut alerts = Vec::new();
+    for query in &data {
+        alerts.extend(analyzer.observe(query));
+    }
+    assert_eq!(analyzer.tracked_domains(), 1);
+    assert_eq!(analyzer.retained_names(), 3);
+    assert!(analyzer.dropped_track_events > 0);
+    assert!(analyzer.dropped_name_events > 0);
+    alerts.extend(analyzer.flush());
+    assert!(alerts.is_empty());
+    assert!(analyzer.uncertainty_limited_scores > 0);
+}
+
+#[test]
+fn name_limits_cannot_manufacture_tunnel_alerts_from_repeated_names() {
+    use tracehound_eval::dns::DnsAnalyzer;
+    let rules = Rules::new(&rule("tuning:\n  max_unique_names: 2\n"));
+    let mut analyzer = DnsAnalyzer::new(rules.load().unwrap());
+    for index in 0..103u64 {
+        let mut query = queries("repeated.example.net", 1, index * 1000, 1).remove(0);
+        let label = if index == 0 {
+            "a"
+        } else if index == 1 {
+            "b"
+        } else {
+            "c"
+        };
+        query.name = format!(
+            "{label}abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmn.repeated.example.net"
+        );
+        query.query_type = 1;
+        assert!(analyzer.observe(&query).is_empty());
+    }
+    assert!(analyzer.flush().is_empty());
+    assert!(analyzer.uncertainty_limited_scores > 0);
+    let policy = Rules::new(&rule("tuning:\n  max_unique_names: 65536\n"));
+    let mut global = DnsAnalyzer::with_name_budget(policy.load().unwrap(), 2).unwrap();
+    for query in queries("unrelated.example.com", 2, 0, 1) {
+        assert!(global.observe(&query).is_empty());
+    }
+    for mut query in queries("fresh.example.net", 103, 1000, 1000) {
+        query.name = "cabcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmn.fresh.example.net".into();
+        query.query_type = 1;
+        assert!(global.observe(&query).is_empty());
+    }
+    assert!(global.flush().is_empty());
+    assert_eq!(global.retained_names(), 2);
+    assert!(global.uncertainty_limited_scores > 0);
 }
