@@ -2,6 +2,8 @@ package pipeline_test
 
 import (
 	"context"
+	"errors"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -73,13 +75,94 @@ func TestRunReturnsWhenASilentSourceIsCancelled(t *testing.T) {
 	cancel()
 
 	select {
-	case <-done:
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("Run error = %v, want context.Canceled", err)
+		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run did not return after cancellation; a silent link still hangs the sensor")
 	}
 
 	if got := src.interrupts.Load(); got == 0 {
 		t.Error("the source was never interrupted, so it returned for some other reason")
+	}
+}
+
+// spacedSource has a capture-time gap that must never become an
+// uninterruptible wall-clock sleep during paced replay.
+type spacedSource struct {
+	read       int
+	secondRead chan struct{}
+	start      time.Time
+}
+
+func (s *spacedSource) Next() (model.Packet, error) {
+	if s.read == 2 {
+		return model.Packet{}, capture.ErrDone
+	}
+	at := s.start.Add(time.Duration(s.read) * time.Hour)
+	s.read++
+	if s.read == 2 {
+		close(s.secondRead)
+	}
+	return model.Packet{
+		Timestamp:  at,
+		Src:        netip.MustParseAddr("10.0.0.1"),
+		Dst:        netip.MustParseAddr("192.0.2.1"),
+		SrcPort:    51000,
+		DstPort:    443,
+		Proto:      model.ProtoTCP,
+		WireLength: 74,
+	}, nil
+}
+
+func (s *spacedSource) LinkType() string { return "Ethernet" }
+func (s *spacedSource) Stats() capture.Stats {
+	return capture.Stats{Packets: uint64(s.read)}
+}
+func (s *spacedSource) Close() error { return nil }
+
+func TestPacedReplayStopsDuringACaptureTimeGap(t *testing.T) {
+	engine := detect.NewEngine(detect.Config{}, func(model.Alert) {})
+	p := pipeline.New(engine, pipeline.Options{Speed: 1})
+	src := &spacedSource{
+		secondRead: make(chan struct{}),
+		start:      time.Date(2026, 3, 14, 9, 0, 0, 0, time.UTC),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		stats pipeline.Stats
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		stats, err := p.Run(ctx, src)
+		done <- result{stats, err}
+	}()
+
+	// Only cancel after the first packet has been analysed and the packet
+	// after the one-hour gap has been read. The old implementation then
+	// slept for an hour, even though the context had been cancelled.
+	select {
+	case <-src.secondRead:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not reach the capture-time gap")
+	}
+	cancel()
+	select {
+	case got := <-done:
+		if !errors.Is(got.err, context.Canceled) {
+			t.Errorf("Run error = %v, want context.Canceled", got.err)
+		}
+		if got.stats.Packets != 1 {
+			t.Errorf("analysed %d packets, want only the first packet", got.stats.Packets)
+		}
+		if !got.stats.LastPacket.Equal(src.start) {
+			t.Errorf("last analysed packet = %s, want %s", got.stats.LastPacket, src.start)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("paced replay did not stop during a capture-time gap")
 	}
 }
 

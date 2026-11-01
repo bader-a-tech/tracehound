@@ -28,6 +28,7 @@ import (
 	"github.com/baldoseri/tracehound/internal/pcapgen"
 	"github.com/baldoseri/tracehound/internal/pipeline"
 	"github.com/baldoseri/tracehound/internal/rules"
+	"github.com/baldoseri/tracehound/internal/session"
 	"github.com/baldoseri/tracehound/internal/store"
 )
 
@@ -440,42 +441,30 @@ func run(src capture.Source, cf commonFlags, banner string) error {
 		printAlert(a)
 	}
 
-	pack, err := rules.Load(cf.rulesDir)
-	if err != nil {
-		return err
-	}
-	// The detectors are built from the rule pack's tuning, and the pack's
-	// policy governs which of their findings survive.
-	detectors, inventory, err := pack.Detectors()
-	if err != nil {
-		return err
-	}
-
-	cfg := detect.Config{
+	analysis, err := session.New(session.Options{
+		RulesDir:      cf.rulesDir,
 		HomeNets:      homeNets,
 		AlertCooldown: 10 * time.Minute,
-		Policy:        pack.Policy(),
+		Pipeline: pipeline.Options{
+			FlowIdleTimeout: cf.idleTimeout,
+			TickInterval:    cf.tick,
+			Speed:           cf.speed,
+		},
+	}, sink)
+	if err != nil {
+		return err
 	}
-	engine := detect.NewEngine(cfg, sink)
-	for _, d := range detectors {
-		engine.Register(d)
-	}
-
-	p := pipeline.New(engine, pipeline.Options{
-		FlowIdleTimeout: cf.idleTimeout,
-		TickInterval:    cf.tick,
-		Detect:          cfg,
-		Speed:           cf.speed,
-	})
+	engine, inventory := analysis.Engine(), analysis.Inventory()
+	pack := analysis.Rules()
 
 	if !cf.quiet && !cf.jsonOut {
 		fmt.Fprintf(os.Stderr, "tracehound %s: %s\n", resolveVersion(), banner)
 		fmt.Fprintf(os.Stderr, "detectors:  %s\n", strings.Join(engine.Detectors(), ", "))
-		fmt.Fprintf(os.Stderr, "rules:      %d of %d enabled (%s)\n", pack.Enabled(), pack.Len(), pack.Origin)
+		fmt.Fprintf(os.Stderr, "rules:      %d of %d enabled (%s)\n", pack.Enabled, pack.Total, pack.Origin)
 	}
 
 	if cf.listen != "" {
-		dash = api.New(p, engine, inventory, 0).WithStore(db)
+		dash = api.NewSession(analysis, 0).WithStore(db)
 		// Replay stored findings into the dashboard so a restarted sensor
 		// opens showing what it already knows instead of an empty page.
 		if db != nil {
@@ -506,13 +495,25 @@ func run(src capture.Source, cf commonFlags, banner string) error {
 	// byte counters move on every packet, so the inventory is still written on
 	// a cadence rather than per change, which would make it the busiest table
 	// in the database for no analytical gain.
+	stopMaintenance := func() {}
 	if db != nil {
 		maintainCtx, stopMaintain := context.WithCancel(ctx)
-		defer stopMaintain()
-		go maintain(maintainCtx, db, inventory, cf, saveDevicesEvery, applyRetentionEvery)
+		maintained := make(chan struct{})
+		go func() {
+			defer close(maintained)
+			maintain(maintainCtx, db, inventory, cf, saveDevicesEvery, applyRetentionEvery)
+		}()
+		stopMaintenance = func() {
+			stopMaintain()
+			<-maintained
+		}
+		defer stopMaintenance()
 	}
 
-	stats, err := p.Run(ctx, src)
+	stats, err := analysis.Run(ctx, src)
+	// No periodic writer may still be using the database when it is flushed
+	// and closed below, including while a completed dashboard stays open.
+	stopMaintenance()
 	if err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}

@@ -39,21 +39,37 @@ go install github.com/baldoseri/tracehound/cmd/tracehound@latest
 Then:
 
 ```bash
-tracehound gen-demo demo.pcap && tracehound replay demo.pcap
+tracehound replay /path/to/your-capture.pcapng -listen 127.0.0.1:8080
 ```
+
+Open `http://127.0.0.1:8080` to inspect the findings. PCAP and PCAPNG files are
+accepted; no labels or demo data are required. On Linux, use `tracehound sniff
+-i eth0` to analyse a live interface.
+
+For a Rust analysis report or a labelled capture evaluation, build the optional
+`tracehound-eval` tool. It can analyse your captures without labels, or compare
+findings against expected behaviours when ground truth is available. See
+[capture analysis and evaluation](docs/capture-evaluation.md) for build steps,
+commands, JSON reports, and evaluation-suite configuration.
 
 ## Quick start
 
-From a clone, if you have `make`:
+From a clone, build the sensor and analyse your capture:
 
 ```bash
 git clone https://github.com/baldoseri/tracehound && cd tracehound
+go build -o bin/tracehound ./cmd/tracehound
+./bin/tracehound replay /path/to/your-capture.pcap -listen 127.0.0.1:8080
+```
+
+For an optional generated example, if you have `make`:
+
+```bash
 make demo
 ```
 
-Either route builds the binary, generates a synthetic capture containing real attacker
-behaviour, and analyses it. You do not need a network to sniff or a malware sample to
-download.
+This generates a synthetic capture containing labelled attacker behaviour and
+analyses it, so you can explore the tool before collecting your own traffic.
 
 For the live dashboard, which replays 33 minutes of capture in about 17 seconds:
 
@@ -323,9 +339,9 @@ Both algorithms were checked line by line against FoxIO's reference Python
 implementation, which found three real defects: JA4S was stripping GREASE, a
 one-character ALPN was being doubled instead of left alone, and a non-ASCII ALPN
 was hex-encoded rather than reported as `99`. The last two affected JA4 as well.
-What has not been done is running both implementations over the same capture and
-diffing the output, so treat conformance as verified by reading rather than by
-experiment.
+JA4 now also passes external test vectors from FoxIO's own capture. JA4S still
+has no independent capture comparison, so its conformance is verified by reading
+rather than by experiment.
 
 ### QUIC
 
@@ -559,8 +575,22 @@ sudo setcap cap_net_raw,cap_net_admin=eip ./bin/tracehound
 | `GET /api/devices` | Passive asset inventory with JA4 fingerprints |
 | `GET /api/flows?limit=` | Active flow table |
 | `GET /api/stats` | Throughput and detector counters |
+| `GET /api/session` | Analysis state, timestamps, failure details, counters, and rule-pack summary |
 | `GET /api/attack` | Observed ATT&CK techniques with counts |
 | `GET /api/stream` | Server-sent events, one per alert |
+
+The session endpoint distinguishes an analysis that is `ready`, `running`,
+`stopping`, `completed`, `stopped`, or `failed`. An open event stream describes
+the connection, not whether analysis is still running: a finished replay keeps
+serving its results. Session status is available for CLI runs started with
+`-listen`; the lower-level API constructor used without a session returns 404.
+
+The Go backend in `internal/session` loads the rule pack and creates a fresh
+engine, inventory, and pipeline for each analysis. Its synchronous `Run` can
+execute on a worker goroutine while a client reads `Snapshot` and requests
+`Stop`. A session runs only once, so detector history cannot leak between
+captures. The caller closes the capture source after `Run` returns. HTTP session
+status is read-only; starting and stopping through HTTP is not implemented.
 
 ---
 
@@ -596,11 +626,17 @@ your own traffic looks like.
 
 ## Roadmap
 
+Backend development comes first, with the GUI growing alongside usable backend
+capabilities. New implementation, tests, and helper tooling use Go, Rust, or C++;
+prefer Go for straightforward work. No Python tooling is required.
+
+- Grow the evaluation corpus with representative benign and labelled attack traffic
+- Build a friendly GUI around the session backend: guided demo and capture-file
+  analysis, clear progress and errors, searchable findings, and export
+- Independent JA4S conformance checks
 - JA4H, the HTTP variant
 - A detector for known client and server fingerprint pairs, once there is a feed
   to check them against
-- Encrypted ClientHello, which is the thing most likely to make this whole
-  approach less useful and is worth measuring before it does
 
 ## License
 

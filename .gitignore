@@ -12,6 +12,9 @@
 /tools/gifgen/gifgen
 /tools/gifgen/gifgen.exe
 
+# Rust evaluation build output; Cargo.lock stays tracked for reproducible builds.
+/tools/capture-eval/target/
+
 # Go
 *.test
 *.out

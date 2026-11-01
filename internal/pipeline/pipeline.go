@@ -280,11 +280,22 @@ func (p *Pipeline) Run(ctx context.Context, src capture.Source) (Stats, error) {
 			return p.Stats(), fmt.Errorf("pipeline: read packet: %w", err)
 		}
 
+		// Pacing is outside the packet handler so a cancelled wait does not
+		// count or analyse a packet that has not reached its replay time. The
+		// unpaced path still avoids a context check or timer per packet.
+		if p.opts.Speed > 0 {
+			if err := p.pace(ctx, pkt.Timestamp); err != nil {
+				p.finish(src, start)
+				return p.Stats(), err
+			}
+		}
 		p.handle(&pkt)
 	}
 
 	p.finish(src, start)
-	return p.Stats(), nil
+	// Interrupting a blocked live read returns ErrDone too. Preserve the
+	// cancellation so callers can distinguish stopping from a completed file.
+	return p.Stats(), ctx.Err()
 }
 
 // handle processes one decoded packet.
@@ -305,8 +316,6 @@ func (p *Pipeline) handle(pkt *model.Packet) {
 		p.lastNano.Store(n)
 	}
 
-	p.pace(pkt.Timestamp)
-
 	f, isNew := p.table.Observe(pkt)
 
 	p.fingerprintTLS(pkt, f)
@@ -323,14 +332,24 @@ func (p *Pipeline) handle(pkt *model.Packet) {
 // pace throttles replay so that capture time advances at Options.Speed times
 // real time. It is a no-op when Speed is zero, which is the default and the
 // only mode used by tests and benchmarks.
-func (p *Pipeline) pace(ts time.Time) {
-	if p.opts.Speed <= 0 {
-		return
+func (p *Pipeline) pace(ctx context.Context, ts time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if p.firstPacket.IsZero() {
+		return nil
 	}
 	target := time.Duration(float64(ts.Sub(p.firstPacket)) / p.opts.Speed)
 	if wait := target - time.Since(p.wallStart); wait > 0 {
-		time.Sleep(wait)
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
+	return nil
 }
 
 // fingerprintTLS recovers a TLS client fingerprint from client-to-server
