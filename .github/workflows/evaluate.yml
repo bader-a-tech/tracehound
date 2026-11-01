@@ -19,7 +19,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     env:
       CGO_ENABLED: "0"
-      TRACEHOUND_TEST_SENSOR: ${{ github.workspace }}/tracehound-test${{ runner.os == 'Windows' && '.exe' || '' }}
+      TRACEHOUND_TEST_SENSOR: ${{ github.workspace }}/tracehound-test${{ matrix.os == 'windows-latest' && '.exe' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
