@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Tracehound
+Comment=Investigate local network captures
+Exec=/opt/tracehound/tracehound-desktop %f
+Icon=io.github.bader-a-tech.tracehound
+Terminal=false
+Categories=Network;Security;
+MimeType=application/vnd.tcpdump.pcap;application/x-pcapng;
+StartupNotify=true

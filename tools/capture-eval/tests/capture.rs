@@ -178,6 +178,18 @@ fn ipv4_fragments_reassemble_out_of_order_and_reject_overlap_or_expiry() {
     assert_eq!(report.output_packets, 1);
     assert_eq!(report.reassembled_datagrams, 1);
     assert_eq!(report.dns[0].name, "abc.example.co.uk");
+    assert_eq!(
+        report.dns[0]
+            .packets
+            .iter()
+            .map(|p| p.number)
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert_eq!(
+        report.flows[0].forward_packets + report.flows[0].reverse_packets,
+        2
+    );
     assert_eq!(inspect_capture(&output).unwrap().dns.len(), 1);
     let input = pcap(
         &directory,
@@ -227,6 +239,14 @@ fn ipv6_fragment_header_is_removed_and_payload_length_repaired() {
     let result = prepare_capture(&input, &output).unwrap();
     assert_eq!(result.reassembled_datagrams, 1);
     assert_eq!(result.dns.len(), 1);
+    assert_eq!(
+        result.dns[0]
+            .packets
+            .iter()
+            .map(|p| p.number)
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
     assert_eq!(inspect_capture(&output).unwrap().fragments_seen, 0);
 }
 #[test]
@@ -252,6 +272,26 @@ fn segmented_http_and_tls_are_reassembled_and_tuples_reset_on_syn() {
     let report = inspect_capture(&input).unwrap();
     assert_eq!(report.http.len(), 1);
     assert_eq!(report.tls.len(), 1);
+    assert_eq!(
+        report.http[0]
+            .packets
+            .iter()
+            .map(|p| p.number)
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
+    assert_eq!(report.http[0].timestamp_ms, 2_000);
+    assert_eq!(
+        report.tls[0]
+            .packets
+            .iter()
+            .map(|p| p.number)
+            .collect::<Vec<_>>(),
+        [5, 6, 7]
+    );
+    assert_eq!(report.tls[0].timestamp_ms, 5_000);
+    assert_eq!(report.tls[0].last_timestamp_ms, 7_000);
+    assert_eq!(report.flows.len(), 2);
     assert_eq!(report.tls[0].ja4s, "t130200_1301_234ea6891581");
     assert_eq!(report.tls[0].server_name.as_deref(), Some("server"));
     assert_eq!(report.http[0].host.as_deref(), Some("example.test"));

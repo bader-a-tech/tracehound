@@ -16,8 +16,17 @@ use std::sync::{mpsc, Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnalysisEngine {
+    Rust,
+    #[default]
+    Sensor,
+}
+
 #[derive(Clone, Debug)]
 pub struct SensorOptions {
+    pub engine: AnalysisEngine,
     pub executable: OsString,
     pub rules: Option<PathBuf>,
     pub home_nets: Option<OsString>,
@@ -31,6 +40,7 @@ pub struct SensorOptions {
 impl Default for SensorOptions {
     fn default() -> Self {
         Self {
+            engine: AnalysisEngine::Sensor,
             executable: "tracehound".into(),
             rules: None,
             home_nets: None,
@@ -190,7 +200,9 @@ impl CaptureJob {
 
     fn start(path: PathBuf, options: SensorOptions, request: Request) -> Result<Self, JobError> {
         validate_capture(&path)?;
-        if options.executable.is_empty() || options.max_alerts == 0 {
+        if (options.engine == AnalysisEngine::Sensor && options.executable.is_empty())
+            || options.max_alerts == 0
+        {
             return Err(JobError::new(
                 JobErrorKind::InvalidInput,
                 "sensor executable and a positive max-alerts are required",
@@ -225,70 +237,75 @@ impl CaptureJob {
                         Request::Analyze(minimum) => *minimum,
                         Request::Evaluate(case) => case.min_severity,
                     };
-                    let feed = options
-                        .pair_feed
-                        .as_deref()
-                        .map(crate::feed::PairFeed::load)
-                        .transpose()
-                        .map_err(|e| JobError::new(JobErrorKind::InvalidInput, e))?;
-                    let prepared = PreparedCapture::new(&resolved, &options, &worker)?;
-                    let dns_policy = prepared
-                        .enrichment
-                        .as_ref()
-                        .map(|_| crate::dns::DnsPolicy::load(options.rules.as_deref()))
-                        .transpose()
-                        .map_err(|e| JobError::new(JobErrorKind::InvalidInput, e))?;
-                    let mut accumulated = run_sensor(
-                        &options,
-                        prepared.path(&resolved).as_ref(),
-                        minimum,
-                        &worker,
-                        dns_policy.is_some(),
-                    )?;
-                    if let (Some(policy), Some(enrichment)) = (&dns_policy, &prepared.enrichment) {
-                        check_deadline(&options, &worker)?;
-                        let networks = home_networks(&options)?;
-                        let queries: Vec<_> = enrichment
-                            .dns
-                            .iter()
-                            .filter(|q| {
-                                networks
-                                    .iter()
-                                    .any(|net| net.contains(&crate::canonical_ip(q.src)))
-                            })
-                            .cloned()
-                            .collect();
-                        for alert in policy.detect(&queries) {
-                            append_native(&mut accumulated, alert, &options, &worker)?;
-                        }
-                    }
-                    if let (Some(feed), Some(enrichment)) = (&feed, &prepared.enrichment) {
-                        check_deadline(&options, &worker)?;
-                        for alert in feed
-                            .detect(&enrichment.tls)
-                            .map_err(|e| JobError::new(JobErrorKind::Read, e))?
+                    let (analysis, enrichment) = if options.engine == AnalysisEngine::Rust {
+                        run_rust_capture(&options, &resolved, minimum, &worker)?
+                    } else {
+                        let feed = options
+                            .pair_feed
+                            .as_deref()
+                            .map(crate::feed::PairFeed::load)
+                            .transpose()
+                            .map_err(|e| JobError::new(JobErrorKind::InvalidInput, e))?;
+                        let prepared = PreparedCapture::new(&resolved, &options, &worker)?;
+                        let dns_policy = prepared
+                            .enrichment
+                            .as_ref()
+                            .map(|_| crate::dns::DnsPolicy::load(options.rules.as_deref()))
+                            .transpose()
+                            .map_err(|e| JobError::new(JobErrorKind::InvalidInput, e))?;
+                        let mut accumulated = run_sensor(
+                            &options,
+                            prepared.path(&resolved).as_ref(),
+                            minimum,
+                            &worker,
+                            dns_policy.is_some(),
+                        )?;
+                        if let (Some(policy), Some(enrichment)) =
+                            (&dns_policy, &prepared.enrichment)
                         {
-                            append_native(&mut accumulated, alert, &options, &worker)?;
+                            check_deadline(&options, &worker)?;
+                            let networks = home_networks(&options)?;
+                            let queries: Vec<_> = enrichment
+                                .dns
+                                .iter()
+                                .filter(|q| {
+                                    networks
+                                        .iter()
+                                        .any(|net| net.contains(&crate::canonical_ip(q.src)))
+                                })
+                                .cloned()
+                                .collect();
+                            for alert in policy.detect(&queries) {
+                                append_native(&mut accumulated, alert, &options, &worker)?;
+                            }
                         }
-                    }
-                    let enrichment = prepared
-                        .enrichment
-                        .as_ref()
-                        .map(serde_json::to_value)
-                        .transpose()
-                        .map_err(|e| JobError::new(JobErrorKind::Internal, e.to_string()))?
-                        .unwrap_or(serde_json::Value::Null);
+                        if let (Some(feed), Some(enrichment)) = (&feed, &prepared.enrichment) {
+                            check_deadline(&options, &worker)?;
+                            for alert in feed
+                                .detect(&enrichment.tls)
+                                .map_err(|e| JobError::new(JobErrorKind::Read, e))?
+                            {
+                                append_native(&mut accumulated, alert, &options, &worker)?;
+                            }
+                        }
+                        let enrichment = prepared
+                            .enrichment
+                            .as_ref()
+                            .map(serde_json::to_value)
+                            .transpose()
+                            .map_err(|e| JobError::new(JobErrorKind::Internal, e.to_string()))?
+                            .unwrap_or(serde_json::Value::Null);
+                        (accumulated.finish(), enrichment)
+                    };
                     worker.check_cancelled()?;
                     let report = match request {
                         Request::Analyze(_) => JobReport::Analysis(CaptureReport {
                             capture: path,
-                            report: accumulated.finish(),
+                            report: analysis,
                             enrichment,
                         }),
                         Request::Evaluate(case) => {
-                            let mut report = accumulated
-                                .finish_evaluation(&case)
-                                .map_err(|e| JobError::new(JobErrorKind::Read, e))?;
+                            let mut report = crate::evaluate_analysis(&case, analysis);
                             report.enrichment = enrichment;
                             JobReport::Evaluation(Box::new(report))
                         }
@@ -550,6 +567,106 @@ fn home_networks(options: &SensorOptions) -> Result<Vec<ipnet::IpNet>, JobError>
             })
         })
         .collect()
+}
+
+fn run_rust_capture(
+    options: &SensorOptions,
+    path: &Path,
+    minimum: Severity,
+    shared: &Arc<Shared>,
+) -> Result<(AnalysisReport, serde_json::Value), JobError> {
+    use crate::capture::CaptureEnrichment;
+    use crate::streaming::{StreamLimits, StreamOptions, StreamingAnalyzer};
+    let mut analyzer = StreamingAnalyzer::new(StreamOptions {
+        rules: options.rules.clone(),
+        home_nets: home_networks(options)?,
+        pair_feed: options.pair_feed.clone(),
+        min_severity: minimum,
+        limits: StreamLimits {
+            max_alert_records: options.max_alerts as u64,
+            ..Default::default()
+        },
+        local_live: false,
+    })
+    .map_err(|e| JobError::new(JobErrorKind::InvalidInput, e))?;
+    shared.lock().state = JobState::Running;
+    let interrupted = || {
+        shared.cancelled.load(Ordering::Acquire)
+            || (!options.timeout.is_zero() && shared.started.elapsed() >= options.timeout)
+    };
+    let mut retained = CaptureEnrichment::default();
+    let mut references = 0usize;
+    let mut dropped = 0u64;
+    let enrichment =
+        crate::capture::scan_capture_events(path, None, &interrupted, &mut |_, events| {
+            analyzer.observe_ref(events)?;
+            let stats = analyzer.stats();
+            shared.alert_records.store(
+                stats.alert_records.min(usize::MAX as u64) as usize,
+                Ordering::Relaxed,
+            );
+            shared
+                .unique_findings
+                .store(stats.findings, Ordering::Relaxed);
+            for value in &events.dns {
+                if retained.dns.len() < 5000 && references + value.packets.len() <= 16_384 {
+                    references += value.packets.len();
+                    retained.dns.push(value.clone());
+                } else {
+                    dropped += 1;
+                }
+            }
+            for value in &events.http {
+                if retained.http.len() < 5000 && references + value.packets.len() <= 16_384 {
+                    references += value.packets.len();
+                    retained.http.push(value.clone());
+                } else {
+                    dropped += 1;
+                }
+            }
+            for value in &events.tls {
+                if retained.tls.len() < 5000 && references + value.packets.len() <= 16_384 {
+                    references += value.packets.len();
+                    retained.tls.push(value.clone());
+                } else {
+                    dropped += 1;
+                }
+            }
+            for value in &events.tls_clients {
+                if retained.tls_clients.len() < 5000 && references + value.packets.len() <= 16_384 {
+                    references += value.packets.len();
+                    retained.tls_clients.push(value.clone());
+                } else {
+                    dropped += 1;
+                }
+            }
+            Ok(())
+        });
+    shared.check_cancelled()?;
+    check_deadline(options, shared)?;
+    let mut enrichment = enrichment.map_err(|e| JobError::new(JobErrorKind::Read, e))?;
+    let summary = analyzer
+        .finish()
+        .map_err(|e| JobError::new(JobErrorKind::Read, e))?;
+    shared.check_cancelled()?;
+    check_deadline(options, shared)?;
+    shared
+        .alert_records
+        .store(summary.report.total_alerts, Ordering::Relaxed);
+    shared
+        .unique_findings
+        .store(summary.report.findings.len(), Ordering::Relaxed);
+    enrichment.dns = retained.dns;
+    enrichment.http = retained.http;
+    enrichment.tls = retained.tls;
+    enrichment.tls_clients = retained.tls_clients;
+    if dropped > 0 {
+        enrichment.warnings.push(format!("Inline report context omitted {dropped} observations at its count/reference limits; create an investigation index to retain every decoded event."));
+    }
+    let mut value = serde_json::to_value(enrichment)
+        .map_err(|e| JobError::new(JobErrorKind::Internal, e.to_string()))?;
+    value["analysis"] = serde_json::json!({"metadata":summary.analysis_meta,"stats":summary.stats,"policy_notes":summary.policy_notes,"inline_context_observations_dropped":dropped});
+    Ok((summary.report, value))
 }
 
 // The process guard also reaps the child if an unexpected worker panic occurs.

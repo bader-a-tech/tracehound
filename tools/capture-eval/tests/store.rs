@@ -251,6 +251,7 @@ fn corpus_reports_preserve_provenance_observations_and_contextual_comparisons() 
         ],
         evaluation: SuiteReport::from_cases(vec![evaluation("labelled")]),
         observations: vec![analysis(&[alert("TH-0001", "10.0.0.1", 4)])],
+        validation: None,
     };
     let value = serde_json::to_value(&corpus).unwrap();
     let document = ReportDocument::from_value(value.clone()).unwrap();
@@ -275,6 +276,7 @@ fn corpus_reports_preserve_provenance_observations_and_contextual_comparisons() 
         sources: vec![json!({"id":"only-observation","sha256":"c".repeat(64)})],
         evaluation: SuiteReport::from_cases(Vec::new()),
         observations: vec![analysis(&[])],
+        validation: None,
     };
     assert!(ReportDocument::from_value(serde_json::to_value(observed).unwrap()).is_ok());
 }

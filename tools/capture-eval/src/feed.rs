@@ -241,6 +241,7 @@ mod tests {
             ja4: feed.entries[0].ja4.clone(),
             ja4s: feed.entries[0].ja4s.clone(),
             server_name: None,
+            ..Default::default()
         };
         assert_eq!(
             feed.detect(&[observation.clone(), observation])

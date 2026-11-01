@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use tracehound_eval::runtime::{CaptureJob, CaptureReport, JobReport, SensorOptions};
+use tracehound_eval::runtime::{
+    AnalysisEngine, CaptureJob, CaptureReport, JobReport, SensorOptions,
+};
 use tracehound_eval::suite::{SuiteJob, SuiteReport};
 use tracehound_eval::Severity;
 mod commands;
@@ -17,13 +19,21 @@ USAGE
   tracehound-eval analyze CAPTURE [OPTIONS]
   tracehound-eval evaluate SUITE.json [OPTIONS]
   tracehound-eval corpus DIRECTORY [OPTIONS] [--manifest PATH]
+  tracehound-eval investigate CAPTURE --index NEW-CASE.db [OPTIONS]
+  tracehound-eval case CASE.db [--offset N] [--limit N] [--search TEXT]
+  tracehound-eval timeline CASE.db HOST [--after ID] [--limit N]
+  tracehound-eval case-export CASE.db HOST NEW-DIRECTORY [--include-packets] [--source CAPTURE]
+  tracehound-eval packet-export CASE.db FRAME,FRAME NEW.pcapng [--source CAPTURE]
+  tracehound-eval behavior-compare BEFORE.db AFTER.db HOST [--seconds N]
   tracehound-eval history [--history-dir DIRECTORY]
   tracehound-eval open REPORT.json
   tracehound-eval compare BEFORE.json AFTER.json
   tracehound-eval feed-update NEW-FEED.json
 
 OPTIONS
-  --sensor PATH       Tracehound executable (default: tracehound on PATH)
+  --engine rust|sensor  Rust analysis by default; sensor selects the legacy executable
+  --sensor PATH       Legacy Tracehound executable (implies --engine sensor)
+  --index PATH        New investigation database for investigate
   --rules DIR         Custom Tracehound rule directory
   --home-nets CIDRS   Comma-separated internal network prefixes
   --pair-feed PATH    Local source-attributed TLS pair feed (opt-in)
@@ -32,7 +42,7 @@ OPTIONS
   --min-severity LEVEL  Analysis reporting floor (default: low; evaluate uses each case)
   --json              Write the complete machine-readable report to stdout
   --output PATH       Also save a JSON report; refuses to overwrite an existing file
-  --timeout SECONDS   Sensor timeout per capture (default: 300; 0 disables)
+  --timeout SECONDS   Analysis timeout per capture (default: 300; 0 disables)
   --max-alerts N      Maximum alert records per capture (default: 1000000)
   -h, --help          Show this help
   --version           Show the version
@@ -47,12 +57,15 @@ enum Mode {
     Analyze,
     Evaluate,
     Corpus,
+    Investigate,
 }
 
 struct Options {
     mode: Mode,
     input: PathBuf,
     sensor: OsString,
+    engine: AnalysisEngine,
+    index: Option<PathBuf>,
     rules: Option<PathBuf>,
     home_nets: Option<OsString>,
     pair_feed: Option<PathBuf>,
@@ -72,6 +85,7 @@ fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, St
         Some(s) if s == "analyze" => Mode::Analyze,
         Some(s) if s == "evaluate" => Mode::Evaluate,
         Some(s) if s == "corpus" => Mode::Corpus,
+        Some(s) if s == "investigate" => Mode::Investigate,
         _ => {
             return Err(
                 "choose analyze CAPTURE or evaluate SUITE.json; use --help for usage".into(),
@@ -82,6 +96,8 @@ fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, St
         mode,
         input: PathBuf::new(),
         sensor: "tracehound".into(),
+        engine: AnalysisEngine::Rust,
+        index: None,
         rules: None,
         home_nets: None,
         pair_feed: None,
@@ -95,6 +111,8 @@ fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, St
         max_alerts: 1_000_000,
     };
     let mut severity_set = false;
+    let mut engine_set = false;
+    let mut sensor_set = false;
     let mut positional = false;
     let mut literal = false;
     while let Some(arg) = args.next() {
@@ -121,7 +139,19 @@ fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, St
                 ));
             }
             match arg.to_str() {
-                Some("--sensor") => opts.sensor = value,
+                Some("--sensor") => {
+                    opts.sensor = value;
+                    sensor_set = true;
+                }
+                Some("--engine") => {
+                    opts.engine = match value.to_str() {
+                        Some("rust") => AnalysisEngine::Rust,
+                        Some("sensor") => AnalysisEngine::Sensor,
+                        _ => return Err("engine must be rust or sensor".into()),
+                    };
+                    engine_set = true;
+                }
+                Some("--index") => opts.index = Some(value.into()),
                 Some("--rules") => opts.rules = Some(value.into()),
                 Some("--home-nets") => opts.home_nets = Some(value),
                 Some("--pair-feed") => opts.pair_feed = Some(value.into()),
@@ -170,6 +200,25 @@ fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, St
     if opts.mode != Mode::Corpus && opts.manifest.is_some() {
         return Err("--manifest applies to corpus only".into());
     }
+    if !engine_set && sensor_set {
+        opts.engine = AnalysisEngine::Sensor;
+    }
+    if engine_set && opts.engine == AnalysisEngine::Rust && sensor_set {
+        return Err("--sensor requires --engine sensor".into());
+    }
+    if opts.mode == Mode::Investigate {
+        if opts.index.is_none() {
+            return Err("investigate requires --index NEW-CASE.db".into());
+        }
+        if opts.engine != AnalysisEngine::Rust {
+            return Err("investigation indexing uses the shared Rust engine".into());
+        }
+        if opts.save_history {
+            return Err("investigation databases are saved with --index; report history accepts JSON reports".into());
+        }
+    } else if opts.index.is_some() {
+        return Err("--index applies to investigate only".into());
+    }
     Ok(opts)
 }
 
@@ -188,7 +237,7 @@ fn main() {
     let outcome = (|| {
         ctrlc::set_handler(move || signal.store(true, Ordering::Release))
             .map_err(|e| format!("install interrupt handler: {e}"))?;
-        if let Some(outcome) = commands::run(&args) {
+        if let Some(outcome) = commands::run(&args, &interrupted) {
             return outcome;
         }
         run(parse_options(args)?, &interrupted)
@@ -236,6 +285,8 @@ fn wants_help(args: &[OsString]) -> bool {
                     | "--pair-feed"
                     | "--manifest"
                     | "--history-dir"
+                    | "--engine"
+                    | "--index"
             )
         ) {
             value = true;
@@ -286,6 +337,55 @@ fn run(opts: Options, interrupted: &AtomicBool) -> Result<i32, String> {
             Ok(if output.passed { 0 } else { 1 })
         }
         Mode::Corpus => run_corpus(&opts, interrupted),
+        Mode::Investigate => {
+            use tracehound_eval::case_job::InvestigationJob;
+            use tracehound_eval::streaming::{StreamLimits, StreamOptions};
+            let defaults = StreamOptions::default();
+            let home_nets = opts
+                .home_nets
+                .as_deref()
+                .map(|value| {
+                    value
+                        .to_str()
+                        .ok_or("home networks must be UTF-8")
+                        .and_then(|text| {
+                            text.split(',')
+                                .map(|net| {
+                                    net.trim().parse().map_err(|_| "invalid home network CIDR")
+                                })
+                                .collect()
+                        })
+                })
+                .transpose()?
+                .unwrap_or(defaults.home_nets);
+            let job = InvestigationJob::start(
+                opts.input.clone(),
+                opts.index.clone().expect("validated index"),
+                StreamOptions {
+                    rules: opts.rules.clone(),
+                    home_nets,
+                    pair_feed: opts.pair_feed.clone(),
+                    min_severity: opts.min_severity,
+                    limits: StreamLimits {
+                        max_alert_records: opts.max_alerts as u64,
+                        ..Default::default()
+                    },
+                    local_live: false,
+                },
+                opts.timeout,
+            )?;
+            let result = loop {
+                if interrupted.load(Ordering::Acquire) {
+                    job.cancel();
+                }
+                if let Some(result) = job.try_result() {
+                    break result?;
+                }
+                thread::sleep(Duration::from_millis(15));
+            };
+            emit_report(&opts,result.as_ref(),&format!("Investigation saved to {}: {} original packets, {} connections, {} events. Original SHA-256: {}",safe(&opts.index.as_ref().unwrap().display().to_string()),result.packets,result.flows,result.events,result.capture.sha256))?;
+            Ok(0)
+        }
     }
 }
 fn wait_for_job(job: &CaptureJob, interrupted: &AtomicBool) -> Result<Arc<JobReport>, String> {
@@ -302,6 +402,7 @@ fn wait_for_job(job: &CaptureJob, interrupted: &AtomicBool) -> Result<Arc<JobRep
 
 fn sensor_options(opts: &Options) -> SensorOptions {
     SensorOptions {
+        engine: opts.engine,
         executable: opts.sensor.clone(),
         rules: opts.rules.clone(),
         home_nets: opts.home_nets.clone(),
@@ -364,8 +465,9 @@ fn run_corpus(opts: &Options, interrupted: &AtomicBool) -> Result<i32, String> {
             JobReport::Analysis(report) => observations.push(report.clone()),
         }
     }
+    let validation = tracehound_eval::validation::summarize(&captures, &reports)?;
     let evaluation = SuiteReport::from_cases(reports);
-    let report = serde_json::json!({"schema_version":1,"mode":"corpus_evaluation","sources":captures,"evaluation":evaluation,"observations":observations});
+    let report = serde_json::json!({"schema_version":1,"mode":"corpus_evaluation","sources":captures,"evaluation":evaluation,"observations":observations,"validation":validation});
     let mut text = if evaluation.captures.is_empty() {
         "No labelled captures: accuracy is unknown.\n".into()
     } else {
@@ -376,6 +478,20 @@ fn run_corpus(opts: &Options, interrupted: &AtomicBool) -> Result<i32, String> {
             "\n{} unlabelled capture(s) analysed without accuracy metrics.\n",
             observations.len()
         ));
+    }
+    for metric in &validation.per_rule {
+        text.push_str(&format!(
+            "\n{}: {} / {} labelled behaviours matched",
+            metric.rule_id, metric.matched_behaviours, metric.labelled_behaviours
+        ));
+        if let Some(rate) = metric.benign_alert_records_per_host_hour {
+            text.push_str(&format!(
+                "; {rate:.3} benign alert records per reviewed host-hour"
+            ));
+        } else {
+            text.push_str("; benign host-hour rate unknown (no reviewed exposure)");
+        }
+        text.push('\n');
     }
     emit_report(opts, &report, &text)?;
     Ok(if evaluation.passed { 0 } else { 1 })

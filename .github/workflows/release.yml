@@ -1,6 +1,11 @@
 name: release
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "packaging/**"
+      - "tools/capture-eval/**"
   push:
     tags: ["v*"]
   workflow_dispatch:
@@ -58,7 +63,15 @@ jobs:
         id: version
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          if ($env:EVENT_NAME -eq 'pull_request') {
+            $package = Get-Content -LiteralPath tools/capture-eval/Cargo.toml -Raw
+            $version = [regex]::Match($package, '(?m)^version\s*=\s*"([^"]+)"').Groups[1].Value
+            if (-not $version) { throw 'Cargo application version is missing' }
+            "tag=v$version" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
           if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') {
             throw 'Release tag must be vMAJOR.MINOR.PATCH with an optional prerelease suffix'
           }
@@ -96,7 +109,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libgl1-mesa-dev libxcursor-dev libxrandr-dev libxinerama-dev libudev-dev pkg-config
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libwayland-cursor0 libwayland-egl1 libx11-dev libx11-xcb1 libxi-dev libgl1-mesa-dev libgl1-mesa-dri libxcursor-dev libxrandr-dev libxinerama-dev libudev-dev pkg-config xvfb xauth desktop-file-utils
 
       - name: test sensor
         run: |
@@ -120,7 +133,7 @@ jobs:
           foreach ($name in @('tracehound-eval', 'tracehound-desktop')) {
             Copy-Item -LiteralPath "tools/capture-eval/target/release/$name$env:EXE_SUFFIX" -Destination dist/release-stage
           }
-          Copy-Item -LiteralPath README.md, LICENSE, SECURITY.md -Destination dist/release-stage
+          Copy-Item -LiteralPath README.md, LICENSE, SECURITY.md, CONTRIBUTING.md -Destination dist/release-stage
           Copy-Item -LiteralPath docs -Destination dist/release-stage -Recurse
           & "tools/capture-eval/target/release/release-notices$env:EXE_SUFFIX" (Get-Location).Path dist/release-stage/licenses
           if ($LASTEXITCODE -ne 0) { throw 'Dependency notice collection failed' }
@@ -133,6 +146,53 @@ jobs:
           cargo test --locked --manifest-path tools/capture-eval/Cargo.toml --all-targets --features gui
           if ($LASTEXITCODE -ne 0) { throw 'Rust tests failed' }
 
+      - name: build and verify native installer
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+          EXE_SUFFIX: ${{ matrix.extension }}
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          WINDOWS_CERTIFICATE_PFX_BASE64: ${{ github.event_name != 'pull_request' && secrets.WINDOWS_CERTIFICATE_PFX_BASE64 || '' }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+          MACOS_CERTIFICATE_P12_BASE64: ${{ github.event_name != 'pull_request' && secrets.MACOS_CERTIFICATE_P12_BASE64 || '' }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.MACOS_CERTIFICATE_PASSWORD || '' }}
+          MACOS_SIGNING_IDENTITY: ${{ github.event_name != 'pull_request' && secrets.MACOS_SIGNING_IDENTITY || '' }}
+          MACOS_NOTARY_APPLE_ID: ${{ github.event_name != 'pull_request' && secrets.MACOS_NOTARY_APPLE_ID || '' }}
+          MACOS_NOTARY_TEAM_ID: ${{ github.event_name != 'pull_request' && secrets.MACOS_NOTARY_TEAM_ID || '' }}
+          MACOS_NOTARY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.MACOS_NOTARY_PASSWORD || '' }}
+        run: |
+          New-Item -ItemType Directory -Path dist/release-assets -Force | Out-Null
+          $stage = (Resolve-Path -LiteralPath dist/release-stage).Path
+          $assets = (Resolve-Path -LiteralPath dist/release-assets).Path
+          $version = $env:RELEASE_TAG.Substring(1)
+          $renderer = Join-Path $env:RUNNER_TEMP "tracehound-render-icons$env:EXE_SUFFIX"
+          $arguments = @('-O', 'packaging/render-icons.rs', '-o', $renderer)
+          if ($IsWindows) { $arguments += @('-C', 'target-feature=+crt-static') }
+          & rustc @arguments
+          if ($LASTEXITCODE -ne 0) { throw 'Native icon asset build failed' }
+          & $renderer $stage
+          if ($LASTEXITCODE -ne 0) { throw 'Native icon rendering failed' }
+          $smoke = (Resolve-Path "tools/capture-eval/target/release/release-smoke$env:EXE_SUFFIX").Path
+          if ($IsWindows) {
+            & ./packaging/windows/build.ps1 -StageDirectory $stage -OutputDirectory $assets -Version $version
+            $installer = Get-ChildItem -LiteralPath $assets -Filter '*.msi' | Select-Object -First 1 -ExpandProperty FullName
+            & ./packaging/windows/check.ps1 -Installer $installer -SmokeExecutable $smoke -Version $version -WorkDirectory (Join-Path $env:RUNNER_TEMP 'Tracehound MSI verification')
+          } elseif ($IsMacOS) {
+            bash packaging/macos/build.sh $stage $assets $version $env:ARCH
+            if ($LASTEXITCODE -ne 0) { throw 'macOS app/disk-image build failed' }
+            $installer = Get-ChildItem -LiteralPath $assets -Filter '*.dmg' | Select-Object -First 1 -ExpandProperty FullName
+            bash packaging/macos/check.sh $installer $smoke $version
+            if ($LASTEXITCODE -ne 0) { throw 'Mounted macOS app verification failed' }
+          } else {
+            bash packaging/linux/build.sh $stage $assets $version $env:ARCH
+            if ($LASTEXITCODE -ne 0) { throw 'Debian package build failed' }
+            $installer = Get-ChildItem -LiteralPath $assets -Filter '*.deb' | Select-Object -First 1 -ExpandProperty FullName
+            bash packaging/linux/check.sh $installer $smoke $version
+            if ($LASTEXITCODE -ne 0) { throw 'Extracted Linux desktop package verification failed' }
+          }
+
       - name: archive and verify extracted bundle
         env:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
@@ -141,7 +201,7 @@ jobs:
           EXE_SUFFIX: ${{ matrix.extension }}
         run: |
           $name = "tracehound-$env:RELEASE_TAG-$env:PLATFORM-$env:ARCH"
-          New-Item -ItemType Directory -Path dist/release-assets | Out-Null
+          New-Item -ItemType Directory -Path dist/release-assets -Force | Out-Null
           if ($IsWindows) {
             $archive = "dist/release-assets/$name.zip"
             $zipFloor = [DateTime]::new(1980, 1, 1, 0, 0, 0, [DateTimeKind]::Utc)
@@ -155,7 +215,9 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Archive creation failed' }
           }
           $digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$digest  $([IO.Path]::GetFileName($archive))" | Set-Content -Encoding utf8NoBOM "dist/release-assets/$name.sha256"
+          Get-ChildItem -LiteralPath dist/release-assets -File | Where-Object Extension -ne '.sha256' | Sort-Object Name | ForEach-Object {
+            "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)"
+          } | Set-Content -Encoding utf8NoBOM "dist/release-assets/$name.sha256"
           $unpacked = Join-Path $env:RUNNER_TEMP 'Tracehound unpacked release'
           New-Item -ItemType Directory -Path $unpacked | Out-Null
           if ($IsWindows) {
@@ -181,6 +243,7 @@ jobs:
   draft:
     name: assemble draft release
     needs: bundle
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -209,4 +272,8 @@ jobs:
           files: |
             release-assets/*.zip
             release-assets/*.tar.gz
+            release-assets/*.msi
+            release-assets/*.dmg
+            release-assets/*.deb
+            release-assets/*-signing.json
             release-assets/SHA256SUMS.txt

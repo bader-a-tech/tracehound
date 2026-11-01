@@ -1,15 +1,15 @@
 [package]
 name = "tracehound-eval"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "MIT"
 description = "Analyse real captures and evaluate Tracehound findings against labelled expectations"
 publish = false
 
 [features]
 default = []
-gui = ["dep:eframe"]
+gui = ["dep:eframe", "dep:image"]
 
 [[bin]]
 name = "tracehound-desktop"
@@ -25,7 +25,9 @@ ureq = "3"
 psl = "2"
 serde_yaml_ng = "0.10"
 ipnet = "2"
+rusqlite = { version = "0.41", features = ["bundled", "hooks"] }
 eframe = { version = "0.37", optional = true, default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
+image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

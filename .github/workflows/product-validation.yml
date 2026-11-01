@@ -1,0 +1,64 @@
+name: product validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      extended_corpus:
+        description: "Include the reviewed 398 MiB benign P2P capture"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  corpus-and-investigation:
+    name: Independent corpus and native investigation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/capture-eval
+      - name: Install native desktop build and display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libgl1-mesa-dev libxcursor-dev libxrandr-dev libxinerama-dev libudev-dev pkg-config xvfb xauth
+      - name: Build Rust application
+        run: cargo build --release --locked --manifest-path tools/capture-eval/Cargo.toml --features gui --bin tracehound-eval --bin tracehound-desktop
+      - name: Evaluate pinned independent captures with the default Rust engine
+        shell: pwsh
+        env:
+          EXTENDED_CORPUS: ${{ inputs.extended_corpus || 'false' }}
+        run: |
+          New-Item -ItemType Directory -Path dist/product-validation -Force | Out-Null
+          $corpusArguments = @('corpus', 'dist/corpus', '--json', '--output', 'dist/product-validation/corpus.json')
+          if ($env:EXTENDED_CORPUS -eq 'true') {
+            $corpusArguments += @('--manifest', 'tools/capture-eval/data/corpus-extended.json')
+          }
+          & tools/capture-eval/target/release/tracehound-eval @corpusArguments | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Independent capture evaluation failed; preserve labels and inspect the report' }
+          $report = Get-Content -Raw dist/product-validation/corpus.json | ConvertFrom-Json
+          $report.validation | ConvertTo-Json -Depth 12
+          if ($report.evaluation.passed -ne $true) { throw 'Corpus did not pass' }
+      - name: Index an independently published periodic-connection capture
+        run: tools/capture-eval/target/release/tracehound-eval investigate dist/corpus/stratosphere-periodic-c2.pcap --index dist/product-validation/periodic.db --home-nets 147.32.0.0/16 --json > dist/product-validation/case-overview.json
+      - name: Open real case, load host and verified packet, render native GUI
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: xvfb-run -a tools/capture-eval/target/release/tracehound-desktop --smoke-case dist/product-validation/periodic.db --smoke-output dist/product-validation/investigation-linux.png --smoke-exit
+      - name: Preserve validation reports and actual GUI screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-validation-linux
+          path: |
+            dist/product-validation/corpus.json
+            dist/product-validation/case-overview.json
+            dist/product-validation/investigation-linux.png
+          if-no-files-found: warn

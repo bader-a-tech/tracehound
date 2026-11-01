@@ -33,6 +33,110 @@ const MAX_PIECES_PER_DATAGRAM: usize = 1024;
 const MAX_PENDING_PIECES: usize = 16_384;
 const MAX_OBSERVATIONS: usize = 50_000;
 const MAX_AGE_MS: u64 = 120_000;
+const MAX_FLOWS: usize = 20_000;
+const MAX_FLOW_REFS: usize = 32;
+const MAX_STREAM_REFS: usize = 4096;
+const MAX_PENDING_REFS: usize = 65_536;
+const MAX_REPORT_REFS: usize = 262_144;
+
+/// Absolute byte offset refers to the original captured frame payload, excluding
+/// the PCAP record / PCAPNG block header. Numbers are one-based; sections and
+/// interfaces are zero-based. References never point into normalized output.
+#[derive(Clone, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct PacketRef {
+    pub number: u64,
+    pub section: u32,
+    pub interface: u32,
+    pub link_type: u32,
+    pub timestamp_ns: u64,
+    pub data_offset: u64,
+    pub captured_len: u32,
+    pub original_len: u32,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CaptureIdentity {
+    pub sha256: String,
+    pub bytes: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct CaptureDiagnostics {
+    pub truncated_packets: u64,
+    pub malformed_transport_packets: u64,
+    pub discarded_fragment_sets: u64,
+    pub discarded_tcp_streams: u64,
+    pub untracked_flow_packets: u64,
+    pub packet_references_dropped: u64,
+}
+
+/// Metadata for every original frame, suitable for an incremental disk index.
+/// Fragmented or malformed transports can have IP endpoints but no ports.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct PacketEvent {
+    pub reference: PacketRef,
+    pub src: Option<IpAddr>,
+    pub dst: Option<IpAddr>,
+    pub src_port: Option<u16>,
+    pub dst_port: Option<u16>,
+    pub protocol: Option<u8>,
+    pub tcp_flags: Option<u8>,
+}
+
+/// One complete transport datagram after IP reassembly. Only this incremental
+/// event owns application payload bytes; stored enrichment contains references.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DecodedPacket {
+    #[serde(default)]
+    pub flow_id: Option<u64>,
+    pub src: IpAddr,
+    pub dst: IpAddr,
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub protocol: u8,
+    pub tcp_flags: Option<u8>,
+    pub tcp_sequence: Option<u32>,
+    pub tcp_ack: Option<u32>,
+    pub timestamp_ms: u64,
+    pub packets: Vec<PacketRef>,
+    pub payload: Vec<u8>,
+    pub wire_bytes: u64,
+    pub captured_bytes: u64,
+}
+
+/// Canonical endpoint ordering makes direction stable across observations.
+/// `src` is the lexicographically smaller (address, port) endpoint. TCP tuple
+/// reuse starts a new observation when a distinct initiating SYN is seen.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct FlowObservation {
+    pub id: u64,
+    pub section: u32,
+    pub interface: u32,
+    pub src: IpAddr,
+    pub dst: IpAddr,
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub protocol: u8,
+    pub first_timestamp_ms: u64,
+    pub last_timestamp_ms: u64,
+    pub forward_packets: u64,
+    pub reverse_packets: u64,
+    pub forward_wire_bytes: u64,
+    pub reverse_wire_bytes: u64,
+    pub forward_captured_bytes: u64,
+    pub reverse_captured_bytes: u64,
+    pub syn_packets: u64,
+    pub syn_ack_packets: u64,
+    pub fin_packets: u64,
+    pub rst_packets: u64,
+    pub tcp_data_packets: u64,
+    pub tcp_flags: u8,
+    pub initiator: Option<IpAddr>,
+    pub initiator_port: Option<u16>,
+    pub tcp_syn_sequence: Option<u32>,
+    pub packets: Vec<PacketRef>,
+    pub packet_refs_truncated: bool,
+}
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct CaptureEnrichment {
@@ -43,8 +147,16 @@ pub struct CaptureEnrichment {
     pub discarded_fragment_sets: u64,
     pub http: Vec<HttpObservation>,
     pub tls: Vec<TlsObservation>,
+    #[serde(default)]
+    pub tls_clients: Vec<TlsClientObservation>,
     pub dns: Vec<DnsObservation>,
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub capture: Option<CaptureIdentity>,
+    #[serde(default)]
+    pub flows: Vec<FlowObservation>,
+    #[serde(default)]
+    pub diagnostics: CaptureDiagnostics,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -57,6 +169,10 @@ pub struct HttpObservation {
     pub host: Option<String>,
     pub ja4h: String,
     pub header_count: usize,
+    #[serde(default)]
+    pub timestamp_ms: u64,
+    #[serde(default)]
+    pub packets: Vec<PacketRef>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -68,6 +184,24 @@ pub struct TlsObservation {
     pub ja4: String,
     pub ja4s: String,
     pub server_name: Option<String>,
+    #[serde(default)]
+    pub timestamp_ms: u64,
+    #[serde(default)]
+    pub last_timestamp_ms: u64,
+    #[serde(default)]
+    pub packets: Vec<PacketRef>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TlsClientObservation {
+    pub src: IpAddr,
+    pub dst: IpAddr,
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub ja4: String,
+    pub server_name: Option<String>,
+    pub timestamp_ms: u64,
+    pub packets: Vec<PacketRef>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -77,11 +211,140 @@ pub struct DnsObservation {
     pub name: String,
     pub query_type: u16,
     pub timestamp_ms: u64,
+    #[serde(default)]
+    pub src_port: u16,
+    #[serde(default)]
+    pub dst_port: u16,
+    #[serde(default)]
+    pub packets: Vec<PacketRef>,
+}
+
+impl Default for HttpObservation {
+    fn default() -> Self {
+        Self {
+            src: Ipv4Addr::UNSPECIFIED.into(),
+            dst: Ipv4Addr::UNSPECIFIED.into(),
+            src_port: 0,
+            dst_port: 0,
+            method: String::new(),
+            host: None,
+            ja4h: String::new(),
+            header_count: 0,
+            timestamp_ms: 0,
+            packets: Vec::new(),
+        }
+    }
+}
+impl Default for TlsObservation {
+    fn default() -> Self {
+        Self {
+            src: Ipv4Addr::UNSPECIFIED.into(),
+            dst: Ipv4Addr::UNSPECIFIED.into(),
+            src_port: 0,
+            dst_port: 0,
+            ja4: String::new(),
+            ja4s: String::new(),
+            server_name: None,
+            timestamp_ms: 0,
+            last_timestamp_ms: 0,
+            packets: Vec::new(),
+        }
+    }
+}
+impl Default for DnsObservation {
+    fn default() -> Self {
+        Self {
+            src: Ipv4Addr::UNSPECIFIED.into(),
+            dst: Ipv4Addr::UNSPECIFIED.into(),
+            name: String::new(),
+            query_type: 0,
+            timestamp_ms: 0,
+            src_port: 0,
+            dst_port: 0,
+            packets: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct DecodeEvents {
+    pub packet: Option<DecodedPacket>,
+    pub http: Vec<HttpObservation>,
+    pub tls: Vec<TlsObservation>,
+    pub tls_clients: Vec<TlsClientObservation>,
+    pub dns: Vec<DnsObservation>,
+    pub warnings: Vec<String>,
+    pub diagnostics: CaptureDiagnostics,
+}
+
+/// Incremental decoder for a live Rust sensor. Observations are drained after
+/// each push; payload and provenance state remain bounded across long sessions.
+#[derive(Default)]
+pub struct StreamDecoder {
+    inspector: Inspector,
+}
+
+impl StreamDecoder {
+    pub fn push_packet(
+        &mut self,
+        reference: PacketRef,
+        data: &[u8],
+    ) -> Result<DecodeEvents, String> {
+        if data.len() != reference.captured_len as usize
+            || data.len() > MAX_FRAME
+            || reference.original_len < reference.captured_len
+        {
+            return Err("packet reference lengths do not match captured bytes".into());
+        }
+        let packet = self.inspector.packet(reference, data, &mut None)?;
+        Ok(self.inspector.take_events(packet))
+    }
+    pub fn finish(mut self) -> CaptureEnrichment {
+        self.inspector.finish();
+        self.inspector.report
+    }
 }
 
 /// Inspect a capture without creating a normalized output file.
 pub fn inspect_capture(input: &Path) -> Result<CaptureEnrichment, String> {
-    process(input, None, &|| false)
+    process(input, None, &|| false, &mut |_| Ok(()), None, false)
+}
+
+pub fn inspect_capture_with_visitor(
+    input: &Path,
+    cancelled: &dyn Fn() -> bool,
+    visitor: &mut dyn FnMut(&PacketEvent) -> Result<(), String>,
+) -> Result<CaptureEnrichment, String> {
+    process(input, None, cancelled, visitor, None, false)
+}
+
+/// Visit original frame metadata and optionally prepare normalized output in a
+/// single read. Visitor failures abort preparation and remove its partial output.
+pub fn scan_capture(
+    input: &Path,
+    output: Option<&Path>,
+    cancelled: &dyn Fn() -> bool,
+    visitor: &mut dyn FnMut(&PacketEvent) -> Result<(), String>,
+) -> Result<CaptureEnrichment, String> {
+    process(input, output, cancelled, visitor, None, false)
+}
+
+/// Streaming mode drains protocol observations after each callback. Returned
+/// HTTP/TLS/DNS arrays are empty; callbacks can persist every event to disk.
+pub fn scan_capture_events(
+    input: &Path,
+    output: Option<&Path>,
+    cancelled: &dyn Fn() -> bool,
+    visitor: &mut dyn FnMut(&PacketEvent, &DecodeEvents) -> Result<(), String>,
+) -> Result<CaptureEnrichment, String> {
+    process(
+        input,
+        output,
+        cancelled,
+        &mut |_| Ok(()),
+        Some(visitor),
+        false,
+    )
 }
 
 /// Preserve unfragmented frames and replace complete IP fragment sets with one
@@ -89,7 +352,7 @@ pub fn inspect_capture(input: &Path) -> Result<CaptureEnrichment, String> {
 /// replaced. Incomplete, overlapping, expired, or over-budget sets are dropped
 /// and counted. Mixed-link-type PCAPNG is rejected instead of being misdecoded.
 pub fn prepare_capture(input: &Path, output: &Path) -> Result<CaptureEnrichment, String> {
-    process(input, Some(output), &|| false)
+    process(input, Some(output), &|| false, &mut |_| Ok(()), None, false)
 }
 
 /// The background runner can cancel preparation before or between packet reads.
@@ -99,7 +362,33 @@ pub fn prepare_capture_cancellable(
     output: &Path,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<CaptureEnrichment, String> {
-    process(input, Some(output), cancelled)
+    process(input, Some(output), cancelled, &mut |_| Ok(()), None, false)
+}
+
+/// Authenticate original frame numbering and container metadata without keeping
+/// fragment, connection, fingerprint, or protocol-observation state.
+pub fn scan_packet_metadata(
+    input: &Path,
+    cancelled: &dyn Fn() -> bool,
+    visitor: &mut dyn FnMut(&PacketEvent) -> Result<(), String>,
+) -> Result<CaptureIdentity, String> {
+    process(input, None, cancelled, visitor, None, true)?
+        .capture
+        .ok_or("capture identity is unavailable".into())
+}
+
+struct CaptureReader {
+    reader: BufReader<File>,
+    hash: Sha256,
+    offset: u64,
+}
+impl Read for CaptureReader {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        let length = self.reader.read(output)?;
+        self.hash.update(&output[..length]);
+        self.offset += length as u64;
+        Ok(length)
+    }
 }
 
 struct PreparedOutput {
@@ -233,17 +522,26 @@ fn read_exact_or_eof(reader: &mut impl Read, buf: &mut [u8]) -> Result<bool, Str
     Ok(true)
 }
 
+type DecodeVisitor<'a> = &'a mut dyn FnMut(&PacketEvent, &DecodeEvents) -> Result<(), String>;
+
 fn process(
     input: &Path,
     output: Option<&Path>,
     cancelled: &dyn Fn() -> bool,
+    visitor: &mut dyn FnMut(&PacketEvent) -> Result<(), String>,
+    mut decoded_visitor: Option<DecodeVisitor<'_>>,
+    metadata_only: bool,
 ) -> Result<CaptureEnrichment, String> {
     if cancelled() {
         return Err("capture preparation cancelled".into());
     }
-    let mut reader = BufReader::new(
-        File::open(input).map_err(|e| format!("open capture {}: {e}", input.display()))?,
-    );
+    let mut reader = CaptureReader {
+        reader: BufReader::new(
+            File::open(input).map_err(|e| format!("open capture {}: {e}", input.display()))?,
+        ),
+        hash: Sha256::new(),
+        offset: 0,
+    };
     let mut magic = [0; 4];
     reader.read_exact(&mut magic).map_err(io_error)?;
     let mut sink = output.map(PreparedOutput::new).transpose()?;
@@ -269,7 +567,7 @@ fn process(
         }
         let mut interfaces = Vec::<Interface>::new();
         let mut capture_link = None;
-        let mut section = 0u64;
+        let mut section = 0u32;
         let mut header = [0; 8];
         while read_exact_or_eof(&mut reader, &mut header)? {
             if cancelled() {
@@ -294,13 +592,16 @@ fn process(
                     return Err("unsupported PCAPNG version".into());
                 }
                 interfaces.clear();
-                section += 1;
+                section = section
+                    .checked_add(1)
+                    .ok_or("PCAPNG section index overflow")?;
                 continue;
             }
             let kind = order.u32(&header);
             let len = order.u32(&header[4..]) as usize;
             validate_block_length(len, 12)?;
             let mut body = vec![0; len - 8];
+            let body_offset = reader.offset;
             reader.read_exact(&mut body).map_err(io_error)?;
             if order.u32(&body[body.len() - 4..]) as usize != len {
                 return Err("invalid PCAPNG block length trailer".into());
@@ -340,7 +641,16 @@ fn process(
                     let original = order.u32(&body[16..]);
                     if captured > MAX_FRAME || captured > body.len()-20 || original < captured as u32 { return Err("invalid PCAPNG packet length".into()); }
                     if interface.snaplen > 0 && captured > interface.snaplen as usize { return Err("PCAPNG packet exceeds interface snapshot length".into()); }
-                    inspector.packet(interface.link, (section<<32)|u64::from(id), timestamp, original, &body[20..20+captured], &mut sink)?;
+                    let reference = PacketRef {
+                        number: inspector.report.input_packets + 1, section, interface: id,
+                        link_type: interface.link, timestamp_ns: timestamp.as_nanos().try_into().map_err(|_| "capture timestamp exceeds nanosecond provenance range")?,
+                        data_offset: body_offset + 20, captured_len: captured as u32, original_len: original,
+                    };
+                    let data = &body[20..20+captured];
+                    let event = packet_event(reference.clone(), data);
+                    visitor(&event)?;
+                    let decoded = if metadata_only{inspector.report.input_packets+=1;None}else{inspector.packet(reference, data, &mut sink)?};
+                    if let Some(callback) = &mut decoded_visitor { callback(&event, &inspector.take_events(decoded))?; }
                 }
                 3 => return Err("PCAPNG Simple Packet Blocks have no timestamps; export timestamped Enhanced Packet Blocks before analysis".into()),
                 _ => {}
@@ -380,21 +690,43 @@ fn process(
                 return Err("invalid PCAP packet length".into());
             }
             let mut data = vec![0; captured];
+            let data_offset = reader.offset;
             reader.read_exact(&mut data).map_err(io_error)?;
-            inspector.packet(
-                default_link,
-                0,
-                Duration::new(
-                    u64::from(seconds),
-                    if nanos { fraction } else { fraction * 1000 },
-                ),
-                original,
-                &data,
-                &mut sink,
-            )?;
+            let timestamp = Duration::new(
+                u64::from(seconds),
+                if nanos { fraction } else { fraction * 1000 },
+            );
+            let reference = PacketRef {
+                number: inspector.report.input_packets + 1,
+                section: 0,
+                interface: 0,
+                link_type: default_link,
+                timestamp_ns: timestamp
+                    .as_nanos()
+                    .try_into()
+                    .map_err(|_| "capture timestamp exceeds nanosecond provenance range")?,
+                data_offset,
+                captured_len: captured as u32,
+                original_len: original,
+            };
+            let event = packet_event(reference.clone(), &data);
+            visitor(&event)?;
+            let decoded = if metadata_only {
+                inspector.report.input_packets += 1;
+                None
+            } else {
+                inspector.packet(reference, &data, &mut sink)?
+            };
+            if let Some(callback) = &mut decoded_visitor {
+                callback(&event, &inspector.take_events(decoded))?;
+            }
         }
     }
     inspector.finish();
+    inspector.report.capture = Some(CaptureIdentity {
+        bytes: reader.offset,
+        sha256: format!("{:x}", reader.hash.finalize()),
+    });
     if let Some(sink) = sink {
         sink.finish(default_link)?;
     }
@@ -402,7 +734,7 @@ fn process(
 }
 
 fn validate_block_length(size: usize, minimum: usize) -> Result<(), String> {
-    if size < minimum || size > MAX_FRAME + 4096 || size % 4 != 0 {
+    if size < minimum || size > MAX_FRAME + 4096 || !size.is_multiple_of(4) {
         return Err("invalid or oversized PCAPNG block".into());
     }
     Ok(())
@@ -446,6 +778,7 @@ struct FragmentSet {
     final_len: Option<usize>,
     updated: u64,
     wire: u64,
+    packets: Vec<PacketRef>,
 }
 struct Fragment<'a> {
     key: FragmentKey,
@@ -482,6 +815,7 @@ struct Stream {
     parts: BTreeMap<u32, Vec<u8>>,
     updated: u64,
     done: bool,
+    packets: BTreeMap<u32, Vec<PacketRef>>,
 }
 #[derive(Default)]
 struct Pair {
@@ -489,6 +823,7 @@ struct Pair {
     ja4s: Option<String>,
     server_name: Option<String>,
     emitted: bool,
+    packets: Vec<PacketRef>,
 }
 
 #[derive(Default)]
@@ -502,9 +837,142 @@ struct Inspector {
     stream_bytes: usize,
     pairs: BTreeMap<StreamKey, Pair>,
     max_time: u64,
+    flow_index: BTreeMap<(StreamKey, u8), usize>,
+    retained_refs: usize,
 }
 
 impl Inspector {
+    fn take_events(&mut self, packet: Option<DecodedPacket>) -> DecodeEvents {
+        self.report.diagnostics.discarded_fragment_sets = self.report.discarded_fragment_sets;
+        self.retained_refs = 0;
+        DecodeEvents {
+            packet,
+            http: std::mem::take(&mut self.report.http),
+            tls: std::mem::take(&mut self.report.tls),
+            tls_clients: std::mem::take(&mut self.report.tls_clients),
+            dns: std::mem::take(&mut self.report.dns),
+            warnings: std::mem::take(&mut self.report.warnings),
+            diagnostics: self.report.diagnostics.clone(),
+        }
+    }
+    fn retain_references(&mut self, count: usize) -> bool {
+        if self.retained_refs + count > MAX_REPORT_REFS {
+            self.report.diagnostics.packet_references_dropped += count as u64;
+            self.warn("Stored protocol evidence reference limit reached; use streaming indexing to retain later observations");
+            false
+        } else {
+            self.retained_refs += count;
+            true
+        }
+    }
+    fn observe_flow(&mut self, scope: u64, packet: &DecodedPacket) -> Option<u64> {
+        let source = Endpoint {
+            address: packet.src,
+            port: packet.src_port,
+        };
+        let destination = Endpoint {
+            address: packet.dst,
+            port: packet.dst_port,
+        };
+        let directional = StreamKey {
+            scope,
+            source,
+            destination,
+        };
+        let canonical = Self::connection_key(&directional);
+        let key = (canonical.clone(), packet.protocol);
+        let syn = packet.tcp_flags.is_some_and(|flags| flags & 0x12 == 2);
+        let existing = self.flow_index.get(&key).copied();
+        let reused = existing.is_some_and(|index| {
+            let flow = &self.report.flows[index];
+            syn && (flow.tcp_syn_sequence != packet.tcp_sequence
+                || flow.tcp_data_packets > 0
+                || flow.fin_packets > 0
+                || flow.rst_packets > 0
+                || packet.timestamp_ms.saturating_sub(flow.last_timestamp_ms) > MAX_AGE_MS)
+        });
+        let index = if let Some(index) = existing.filter(|_| !reused) {
+            index
+        } else {
+            if self.report.flows.len() >= MAX_FLOWS {
+                self.flow_index.remove(&key);
+                self.report.diagnostics.untracked_flow_packets += packet.packets.len() as u64;
+                self.warn("Flow observation limit reached; remaining new connections are available only through the streaming packet index");
+                return None;
+            }
+            let index = self.report.flows.len();
+            let reference = packet.packets.first();
+            self.report.flows.push(FlowObservation {
+                id: index as u64 + 1,
+                section: reference.map_or(0, |p| p.section),
+                interface: reference.map_or(0, |p| p.interface),
+                src: canonical.source.address,
+                dst: canonical.destination.address,
+                src_port: canonical.source.port,
+                dst_port: canonical.destination.port,
+                protocol: packet.protocol,
+                first_timestamp_ms: packet.timestamp_ms,
+                last_timestamp_ms: packet.timestamp_ms,
+                forward_packets: 0,
+                reverse_packets: 0,
+                forward_wire_bytes: 0,
+                reverse_wire_bytes: 0,
+                forward_captured_bytes: 0,
+                reverse_captured_bytes: 0,
+                syn_packets: 0,
+                syn_ack_packets: 0,
+                fin_packets: 0,
+                rst_packets: 0,
+                tcp_data_packets: 0,
+                tcp_flags: 0,
+                initiator: None,
+                initiator_port: None,
+                tcp_syn_sequence: None,
+                packets: Vec::new(),
+                packet_refs_truncated: false,
+            });
+            self.flow_index.insert(key, index);
+            index
+        };
+        let flow = &mut self.report.flows[index];
+        flow.first_timestamp_ms = flow.first_timestamp_ms.min(packet.timestamp_ms);
+        flow.last_timestamp_ms = flow.last_timestamp_ms.max(packet.timestamp_ms);
+        if directional.source == canonical.source {
+            flow.forward_packets += packet.packets.len() as u64;
+            flow.forward_wire_bytes = flow.forward_wire_bytes.saturating_add(packet.wire_bytes);
+            flow.forward_captured_bytes = flow
+                .forward_captured_bytes
+                .saturating_add(packet.captured_bytes);
+        } else {
+            flow.reverse_packets += packet.packets.len() as u64;
+            flow.reverse_wire_bytes = flow.reverse_wire_bytes.saturating_add(packet.wire_bytes);
+            flow.reverse_captured_bytes = flow
+                .reverse_captured_bytes
+                .saturating_add(packet.captured_bytes);
+        }
+        if let Some(flags) = packet.tcp_flags {
+            flow.tcp_flags |= flags;
+            flow.syn_packets += u64::from(flags & 0x12 == 2);
+            flow.syn_ack_packets += u64::from(flags & 0x12 == 0x12);
+            flow.fin_packets += u64::from(flags & 1 != 0);
+            flow.rst_packets += u64::from(flags & 4 != 0);
+            flow.tcp_data_packets += u64::from(!packet.payload.is_empty());
+            if syn {
+                flow.initiator = Some(packet.src);
+                flow.initiator_port = Some(packet.src_port);
+                flow.tcp_syn_sequence = packet.tcp_sequence;
+            }
+        }
+        for reference in &packet.packets {
+            if flow.packets.len() < MAX_FLOW_REFS {
+                flow.packets.push(reference.clone());
+            } else {
+                flow.packet_refs_truncated = true;
+                self.report.diagnostics.packet_references_dropped += 1;
+            }
+        }
+        Some(flow.id)
+    }
     fn warn(&mut self, message: &str) {
         if self.report.warnings.len() < 32
             && !self.report.warnings.iter().any(|item| item == message)
@@ -514,36 +982,49 @@ impl Inspector {
     }
     fn packet(
         &mut self,
-        link: u32,
-        scope: u64,
-        time: Duration,
-        wire: u32,
+        reference: PacketRef,
         data: &[u8],
         output: &mut Option<PreparedOutput>,
-    ) -> Result<(), String> {
+    ) -> Result<Option<DecodedPacket>, String> {
+        let link = reference.link_type;
+        let scope = (u64::from(reference.section) << 32) | u64::from(reference.interface);
+        let time = Duration::from_nanos(reference.timestamp_ns);
+        let wire = reference.original_len;
         self.report.input_packets += 1;
+        if reference.captured_len < reference.original_len {
+            self.report.diagnostics.truncated_packets += 1;
+        }
         let ms = time.as_millis().min(u128::from(u64::MAX)) as u64;
         self.max_time = self.max_time.max(ms);
         self.expire();
         let frame = if let Some(fragment) = fragment(link, scope, data) {
             self.report.fragments_seen += 1;
-            self.reassemble(fragment, wire, ms)
+            self.reassemble(fragment, wire, ms, reference)
         } else if fragment_marked(link, data) {
             self.report.fragments_seen += 1;
             self.report.discarded_fragment_sets += 1;
             self.warn("Malformed or truncated IP fragments were discarded");
             None
         } else {
-            Some((data.to_vec(), wire))
+            Some((data.to_vec(), wire, vec![reference]))
         };
-        if let Some((data, wire)) = frame {
+        let mut decoded = None;
+        if let Some((data, wire, references)) = frame {
             self.report.output_packets += 1;
-            self.inspect(link, scope, &data, ms);
+            decoded = decode_packet(link, &data, &references);
+            if let Some(packet) = &mut decoded {
+                packet.flow_id = self.observe_flow(scope, packet);
+            } else if transport(link, &data)
+                .is_some_and(|(_, _, protocol, _)| matches!(protocol, 6 | 17))
+            {
+                self.report.diagnostics.malformed_transport_packets += 1;
+            }
+            self.inspect_with_refs(link, scope, &data, ms, &references);
             if let Some(output) = output {
                 output.packet(link, time, wire, &data)?;
             }
         }
-        Ok(())
+        Ok(decoded)
     }
     fn expire(&mut self) {
         let oldest = self.max_time.saturating_sub(MAX_AGE_MS);
@@ -565,6 +1046,9 @@ impl Inspector {
             .map(|(key, _)| key.clone())
             .collect();
         for key in expired {
+            if self.streams.get(&key).is_some_and(|stream| !stream.done) {
+                self.report.diagnostics.discarded_tcp_streams += 1;
+            }
             self.drop_stream(&key);
         }
     }
@@ -584,14 +1068,20 @@ impl Inspector {
         }
         self.rejected.insert(key.clone(), at);
     }
-    fn reassemble(&mut self, fragment: Fragment<'_>, wire: u32, at: u64) -> Option<(Vec<u8>, u32)> {
+    fn reassemble(
+        &mut self,
+        fragment: Fragment<'_>,
+        wire: u32,
+        at: u64,
+        reference: PacketRef,
+    ) -> Option<(Vec<u8>, u32, Vec<PacketRef>)> {
         if self.rejected.contains_key(&fragment.key) {
             return None;
         }
         let end = fragment.offset.checked_add(fragment.payload.len())?;
         if end > 65_535
             || fragment.payload.is_empty()
-            || (fragment.more && fragment.payload.len() % 8 != 0)
+            || (fragment.more && !fragment.payload.len().is_multiple_of(8))
         {
             self.reject(&fragment.key, at);
             self.warn("Malformed IP fragments were discarded");
@@ -641,6 +1131,7 @@ impl Inspector {
                 final_len: None,
                 updated: at,
                 wire: 0,
+                packets: Vec::new(),
             });
         let overlap = set
             .parts
@@ -656,6 +1147,7 @@ impl Inspector {
         }
         set.updated = at;
         set.wire = set.wire.saturating_add(u64::from(wire));
+        set.packets.push(reference);
         if fragment.offset == 0 {
             set.prefix = Some(fragment.prefix);
         }
@@ -705,7 +1197,12 @@ impl Inspector {
             packet[set.network + 10..set.network + 12].copy_from_slice(&sum.to_be_bytes());
         }
         self.report.reassembled_datagrams += 1;
-        Some((packet, set.wire.min(u64::from(u32::MAX)) as u32))
+        set.packets.sort_by_key(|packet| packet.number);
+        Some((
+            packet,
+            set.wire.min(u64::from(u32::MAX)) as u32,
+            set.packets,
+        ))
     }
     fn drop_stream(&mut self, key: &StreamKey) {
         if let Some(stream) = self.streams.remove(key) {
@@ -718,6 +1215,7 @@ impl Inspector {
         key.clone().min(key.reverse())
     }
     fn block_stream(&mut self, key: &StreamKey, at: u64) {
+        self.report.diagnostics.discarded_tcp_streams += 1;
         self.drop_stream(key);
         self.drop_stream(&key.reverse());
         let connection = Self::connection_key(key);
@@ -740,10 +1238,22 @@ impl Inspector {
         if let Some(stream) = self.streams.get_mut(key) {
             self.stream_bytes -= stream.parts.values().map(Vec::len).sum::<usize>();
             stream.parts.clear();
+            stream.packets.clear();
             stream.done = true;
         }
     }
+    #[cfg(test)]
     fn inspect(&mut self, link: u32, scope: u64, frame: &[u8], at: u64) {
+        self.inspect_with_refs(link, scope, frame, at, &[]);
+    }
+    fn inspect_with_refs(
+        &mut self,
+        link: u32,
+        scope: u64,
+        frame: &[u8],
+        at: u64,
+        references: &[PacketRef],
+    ) {
         let Some((src, dst, protocol, payload)) = transport(link, frame) else {
             return;
         };
@@ -754,13 +1264,18 @@ impl Inspector {
                 return;
             }
             if let Some((name, query_type)) = dns_query(&payload[8..length]) {
-                if self.report.dns.len() < MAX_OBSERVATIONS {
+                if self.report.dns.len() < MAX_OBSERVATIONS
+                    && self.retain_references(references.len())
+                {
                     self.report.dns.push(DnsObservation {
                         src,
                         dst,
                         name,
                         query_type,
                         timestamp_ms: at,
+                        src_port: be16(payload),
+                        dst_port: be16(&payload[2..]),
+                        packets: references.to_vec(),
                     });
                 } else {
                     self.warn("DNS enrichment observation limit reached");
@@ -814,6 +1329,7 @@ impl Inspector {
             self.warn("TCP enrichment stream limit reached; oldest streams were discarded");
         }
         if self.stream_bytes + data.len() > MAX_TCP_BYTES {
+            self.report.diagnostics.discarded_tcp_streams += 1;
             self.warn("TCP enrichment memory limit reached");
             return;
         }
@@ -832,12 +1348,35 @@ impl Inspector {
             self.warn("TCP enrichment segment limit reached; incomplete handshake was discarded");
             return;
         }
+        let stream_refs = self.streams.get(&key).map_or(0, |stream| {
+            stream.packets.values().map(Vec::len).sum::<usize>()
+        });
+        let pending_refs = self
+            .streams
+            .values()
+            .flat_map(|stream| stream.packets.values())
+            .map(Vec::len)
+            .sum::<usize>()
+            + self
+                .pairs
+                .values()
+                .map(|pair| pair.packets.len())
+                .sum::<usize>();
+        if stream_refs + references.len() > MAX_STREAM_REFS
+            || pending_refs + references.len() > MAX_PENDING_REFS
+        {
+            self.report.diagnostics.packet_references_dropped += references.len() as u64;
+            self.block_stream(&key, at);
+            self.warn("TCP evidence reference limit reached; incomplete fingerprint was discarded");
+            return;
+        }
         let sequence = be32(&payload[4..]).wrapping_add(u32::from(syn));
         let stream = self.streams.entry(key.clone()).or_insert_with(|| Stream {
             base: sequence,
             parts: BTreeMap::new(),
             updated: at,
             done: false,
+            packets: BTreeMap::new(),
         });
         stream.updated = at;
         if stream.done {
@@ -864,6 +1403,7 @@ impl Inspector {
         }
         self.stream_bytes += data.len();
         stream.parts.insert(sequence, data.to_vec());
+        stream.packets.insert(sequence, references.to_vec());
         let mut pieces: Vec<_> = stream
             .parts
             .iter()
@@ -871,6 +1411,7 @@ impl Inspector {
             .collect();
         pieces.sort_by_key(|(offset, _)| *offset);
         let mut contiguous = Vec::new();
+        let mut support = Vec::new();
         for (offset, data) in pieces {
             if offset > contiguous.len() {
                 break;
@@ -883,9 +1424,17 @@ impl Inspector {
                 return;
             }
             contiguous.extend_from_slice(&data[common..]);
+            if common < data.len() {
+                if let Some(packets) = stream.packets.get(&stream.base.wrapping_add(offset as u32))
+                {
+                    support.extend(packets.iter().cloned());
+                }
+            }
         }
+        support.sort_by_key(|packet| packet.number);
+        support.dedup_by_key(|packet| packet.number);
         if let Some((method, host, ja4h, header_count)) = http_fingerprint(&contiguous) {
-            if self.report.http.len() < MAX_OBSERVATIONS {
+            if self.report.http.len() < MAX_OBSERVATIONS && self.retain_references(support.len()) {
                 self.report.http.push(HttpObservation {
                     src,
                     dst,
@@ -895,6 +1444,12 @@ impl Inspector {
                     host,
                     ja4h,
                     header_count,
+                    timestamp_ms: support
+                        .iter()
+                        .map(|p| p.timestamp_ns / 1_000_000)
+                        .min()
+                        .unwrap_or(at),
+                    packets: support.clone(),
                 });
             } else {
                 self.warn("HTTP fingerprint observation limit reached");
@@ -903,15 +1458,37 @@ impl Inspector {
         }
         if let Some(handshake) = tls_handshake(&contiguous) {
             if let Some((ja4, server_name)) = ja4_from_handshake(&handshake) {
+                if self.report.tls_clients.len() < MAX_OBSERVATIONS
+                    && self.retain_references(support.len())
+                {
+                    self.report.tls_clients.push(TlsClientObservation {
+                        src,
+                        dst,
+                        src_port: key.source.port,
+                        dst_port: key.destination.port,
+                        ja4: ja4.clone(),
+                        server_name: server_name.clone(),
+                        timestamp_ms: support
+                            .iter()
+                            .map(|p| p.timestamp_ns / 1_000_000)
+                            .min()
+                            .unwrap_or(at),
+                        packets: support.clone(),
+                    });
+                } else {
+                    self.warn("TLS client observation limit reached");
+                }
                 let pair = self.pairs.entry(key.clone()).or_default();
                 pair.ja4 = Some(ja4);
                 pair.server_name = server_name;
+                pair.packets.extend(support.iter().cloned());
                 self.complete_stream(&key);
                 self.emit_pair(&key);
             } else if let Some(ja4s) = ja4s_from_handshake(&handshake) {
                 let client = key.reverse();
                 let pair = self.pairs.entry(client.clone()).or_default();
                 pair.ja4s = Some(ja4s);
+                pair.packets.extend(support.iter().cloned());
                 self.complete_stream(&key);
                 self.emit_pair(&client);
             }
@@ -927,7 +1504,16 @@ impl Inspector {
         let (Some(ja4), Some(ja4s)) = (&pair.ja4, &pair.ja4s) else {
             return;
         };
+        let reference_count = pair.packets.len();
+        if self.retained_refs + reference_count > MAX_REPORT_REFS {
+            pair.emitted = true;
+            self.report.diagnostics.packet_references_dropped += reference_count as u64;
+            self.warn("Stored TLS evidence reference limit reached; use streaming indexing to retain later observations");
+            return;
+        }
         if self.report.tls.len() < MAX_OBSERVATIONS {
+            pair.packets.sort_by_key(|packet| packet.number);
+            pair.packets.dedup_by_key(|packet| packet.number);
             self.report.tls.push(TlsObservation {
                 src: key.source.address,
                 dst: key.destination.address,
@@ -936,19 +1522,155 @@ impl Inspector {
                 ja4: ja4.clone(),
                 ja4s: ja4s.clone(),
                 server_name: pair.server_name.clone(),
+                timestamp_ms: pair
+                    .packets
+                    .iter()
+                    .map(|p| p.timestamp_ns / 1_000_000)
+                    .min()
+                    .unwrap_or(0),
+                last_timestamp_ms: pair
+                    .packets
+                    .iter()
+                    .map(|p| p.timestamp_ns / 1_000_000)
+                    .max()
+                    .unwrap_or(0),
+                packets: pair.packets.clone(),
             });
+            self.retained_refs += reference_count;
         } else {
             self.warn("TLS pair observation limit reached");
         }
         self.pairs.get_mut(key).unwrap().emitted = true;
+        self.pairs.get_mut(key).unwrap().packets.clear();
     }
     fn finish(&mut self) {
         self.report.discarded_fragment_sets += self.fragments.len() as u64;
+        self.report.diagnostics.discarded_fragment_sets = self.report.discarded_fragment_sets;
         if !self.fragments.is_empty() {
             self.warn("Incomplete IP fragment sets were discarded at end of capture");
         }
         self.warn("HTTP enrichment covers the first cleartext HTTP/1.x request per TCP flow; encrypted HTTP and HTTP/2/3 are not decoded");
     }
+}
+
+fn packet_event(reference: PacketRef, data: &[u8]) -> PacketEvent {
+    let mut event = PacketEvent {
+        reference,
+        ..PacketEvent::default()
+    };
+    if let Some((src, dst, protocol, payload)) = transport(event.reference.link_type, data) {
+        event.src = Some(src);
+        event.dst = Some(dst);
+        event.protocol = Some(protocol);
+        if (protocol == 6 && payload.len() >= 20) || (protocol == 17 && payload.len() >= 8) {
+            event.src_port = Some(be16(payload));
+            event.dst_port = Some(be16(&payload[2..]));
+            if protocol == 6 {
+                event.tcp_flags = Some(payload[13]);
+            }
+        }
+    } else if let Some(offset) = network_offset(event.reference.link_type, data) {
+        let ip = &data[offset..];
+        match ip.first().map(|byte| byte >> 4) {
+            Some(4) if ip.len() >= 20 => {
+                event.src = Some(Ipv4Addr::new(ip[12], ip[13], ip[14], ip[15]).into());
+                event.dst = Some(Ipv4Addr::new(ip[16], ip[17], ip[18], ip[19]).into());
+                event.protocol = Some(ip[9]);
+            }
+            Some(6) if ip.len() >= 40 => {
+                event.src = Some(Ipv6Addr::from(<[u8; 16]>::try_from(&ip[8..24]).unwrap()).into());
+                event.dst = Some(Ipv6Addr::from(<[u8; 16]>::try_from(&ip[24..40]).unwrap()).into());
+                event.protocol = Some(ip[6]);
+                let mut next = ip[6];
+                let mut at = 40;
+                for _ in 0..16 {
+                    if next == 44 {
+                        if let Some(protocol) = ip.get(at) {
+                            event.protocol = Some(*protocol);
+                        }
+                        break;
+                    }
+                    if !matches!(next, 0 | 43 | 60 | 51) || at + 2 > ip.len() {
+                        break;
+                    }
+                    let size = if next == 51 {
+                        (usize::from(ip[at + 1]) + 2) * 4
+                    } else {
+                        (usize::from(ip[at + 1]) + 1) * 8
+                    };
+                    next = ip[at];
+                    at += size;
+                    if at > ip.len() {
+                        break;
+                    }
+                    event.protocol = Some(next);
+                }
+            }
+            _ => {}
+        }
+    }
+    event
+}
+
+fn decode_packet(link: u32, frame: &[u8], references: &[PacketRef]) -> Option<DecodedPacket> {
+    let (src, dst, protocol, transport) = transport(link, frame)?;
+    let (src_port, dst_port, tcp_flags, tcp_sequence, tcp_ack, payload) = match protocol {
+        6 => {
+            if transport.len() < 20 {
+                return None;
+            }
+            let header = usize::from(transport[12] >> 4) * 4;
+            if header < 20 || header > transport.len() {
+                return None;
+            }
+            (
+                be16(transport),
+                be16(&transport[2..]),
+                Some(transport[13]),
+                Some(be32(&transport[4..])),
+                Some(be32(&transport[8..])),
+                &transport[header..],
+            )
+        }
+        17 => {
+            if transport.len() < 8 {
+                return None;
+            }
+            let length = usize::from(be16(&transport[4..]));
+            if length < 8 || length > transport.len() {
+                return None;
+            }
+            (
+                be16(transport),
+                be16(&transport[2..]),
+                None,
+                None,
+                None,
+                &transport[8..length],
+            )
+        }
+        _ => (0, 0, None, None, None, transport),
+    };
+    Some(DecodedPacket {
+        flow_id: None,
+        src,
+        dst,
+        src_port,
+        dst_port,
+        protocol,
+        tcp_flags,
+        tcp_sequence,
+        tcp_ack,
+        timestamp_ms: references
+            .iter()
+            .map(|p| p.timestamp_ns / 1_000_000)
+            .max()
+            .unwrap_or(0),
+        packets: references.to_vec(),
+        payload: payload.to_vec(),
+        wire_bytes: references.iter().map(|p| u64::from(p.original_len)).sum(),
+        captured_bytes: references.iter().map(|p| u64::from(p.captured_len)).sum(),
+    })
 }
 
 fn network_offset(link: u32, frame: &[u8]) -> Option<usize> {
@@ -1398,12 +2120,14 @@ pub fn ja4_from_handshake(handshake: &[u8]) -> Option<(String, Option<String>)> 
         return None;
     }
     let cipher_bytes = cursor.vector16()?;
-    if cipher_bytes.is_empty() || cipher_bytes.len() % 2 != 0 {
+    if cipher_bytes.is_empty() || !cipher_bytes.len().is_multiple_of(2) {
         return None;
     }
     let mut ciphers: Vec<u16> = cipher_bytes
-        .chunks_exact(2)
-        .map(be16)
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|bytes| be16(bytes))
         .filter(|n| !grease(*n))
         .collect();
     if cursor.vector8()?.is_empty() {
@@ -1451,12 +2175,14 @@ pub fn ja4_from_handshake(handshake: &[u8]) -> Option<(String, Option<String>)> 
                 }
                 13 => {
                     let bytes = value.vector16()?;
-                    if bytes.is_empty() || bytes.len() % 2 != 0 {
+                    if bytes.is_empty() || !bytes.len().is_multiple_of(2) {
                         return None;
                     }
                     signatures = bytes
-                        .chunks_exact(2)
-                        .map(be16)
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|bytes| be16(bytes))
                         .filter(|n| !grease(*n))
                         .collect();
                 }
@@ -1479,12 +2205,14 @@ pub fn ja4_from_handshake(handshake: &[u8]) -> Option<(String, Option<String>)> 
                 }
                 43 => {
                     let bytes = value.vector8()?;
-                    if bytes.is_empty() || bytes.len() % 2 != 0 {
+                    if bytes.is_empty() || !bytes.len().is_multiple_of(2) {
                         return None;
                     }
                     if let Some(max) = bytes
-                        .chunks_exact(2)
-                        .map(be16)
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|bytes| be16(bytes))
                         .filter(|n| !grease(*n))
                         .max()
                     {
@@ -1845,7 +2573,7 @@ mod parser_edges {
     #[test]
     fn later_pcapng_sections_revalidate_version_and_capture_link_type() {
         fn block(kind: u32, mut body: Vec<u8>, output: &mut Vec<u8>) {
-            while body.len() % 4 != 0 {
+            while !body.len().is_multiple_of(4) {
                 body.push(0);
             }
             let size = (body.len() + 12) as u32;

@@ -13,14 +13,21 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+pub mod baseline;
 pub mod capture;
+pub mod case_export;
+pub mod case_job;
 pub mod corpus;
 pub mod dns;
 pub mod feed;
+pub mod investigation;
 pub mod live;
+pub mod process;
 pub mod runtime;
 pub mod store;
+pub mod streaming;
 pub mod suite;
+pub mod validation;
 
 pub const SCHEMA_VERSION: u32 = 1;
 
