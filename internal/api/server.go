@@ -23,6 +23,7 @@ import (
 	"github.com/baldoseri/tracehound/internal/detect"
 	"github.com/baldoseri/tracehound/internal/model"
 	"github.com/baldoseri/tracehound/internal/pipeline"
+	"github.com/baldoseri/tracehound/internal/session"
 	"github.com/baldoseri/tracehound/internal/store"
 )
 
@@ -34,9 +35,10 @@ const DefaultMaxAlerts = 5000
 
 // Server exposes the sensor's state over HTTP.
 type Server struct {
-	pipe *pipeline.Pipeline
-	inv  *detect.Inventory
-	eng  *detect.Engine
+	pipe     *pipeline.Pipeline
+	inv      *detect.Inventory
+	eng      *detect.Engine
+	analysis *session.Session
 
 	mu        sync.RWMutex
 	alerts    []model.Alert
@@ -77,6 +79,13 @@ func New(pipe *pipeline.Pipeline, eng *detect.Engine, inv *detect.Inventory, max
 	}
 }
 
+// NewSession exposes lifecycle status alongside the existing analysis data.
+func NewSession(analysis *session.Session, maxAlerts int) *Server {
+	s := New(analysis.Pipeline(), analysis.Engine(), analysis.Inventory(), maxAlerts)
+	s.analysis = analysis
+	return s
+}
+
 // Publish records an alert and fans it out to live subscribers. It is safe to
 // call from the pipeline goroutine and never blocks on a slow HTTP client.
 func (s *Server) Publish(a model.Alert) {
@@ -111,6 +120,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/devices", s.handleDevices)
 	mux.HandleFunc("GET /api/flows", s.handleFlows)
 	mux.HandleFunc("GET /api/stats", s.handleStats)
+	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("GET /api/attack", s.handleAttack)
 	mux.HandleFunc("GET /api/stream", s.handleStream)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -155,6 +165,14 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 }
 
 // --- handlers ---------------------------------------------------------------
+
+func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
+	if s.analysis == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, s.analysis.Snapshot())
+}
 
 func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 	limit := intParam(r, "limit", 200)
