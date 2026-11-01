@@ -3,7 +3,7 @@
 //! The worker owns its sensor process. UI threads only request cancellation or
 //! read cheap snapshots; no process wait or capture parsing happens in them.
 
-use crate::{analyze, evaluate, Alert, AnalysisReport, CaptureCase, EvaluationReport, Severity};
+use crate::{Alert, AlertAccumulator, AnalysisReport, CaptureCase, EvaluationReport, Severity};
 use serde::Serialize;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -112,8 +112,11 @@ pub enum JobReport {
 #[derive(Clone, Debug, Serialize)]
 pub struct JobSnapshot {
     pub state: JobState,
-    /// Complete JSON alert records read, including those below the reporting floor.
+    /// Accepted JSON alert records, including those below the reporting floor.
     pub alert_records: usize,
+    /// Qualifying rule/source/destination groups received so far. Provisional
+    /// until successful sensor completion; snapshots never publish partial reports.
+    pub unique_findings: usize,
     /// Bytes read from the sensor's JSONL stdout, not bytes of capture processed.
     pub output_bytes: u64,
     pub elapsed_ms: u64,
@@ -133,6 +136,7 @@ struct Shared {
     finished: Condvar,
     cancelled: AtomicBool,
     alert_records: AtomicUsize,
+    unique_findings: AtomicUsize,
     output_bytes: AtomicU64,
     started: Instant,
 }
@@ -202,6 +206,7 @@ impl CaptureJob {
             finished: Condvar::new(),
             cancelled: AtomicBool::new(false),
             alert_records: AtomicUsize::new(0),
+            unique_findings: AtomicUsize::new(0),
             output_bytes: AtomicU64::new(0),
             started: Instant::now(),
         });
@@ -211,16 +216,20 @@ impl CaptureJob {
             .spawn(move || {
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     worker.check_cancelled()?;
-                    let alerts = run_sensor(&options, &resolved, &worker)?;
+                    let minimum = match &request {
+                        Request::Analyze(minimum) => *minimum,
+                        Request::Evaluate(case) => case.min_severity,
+                    };
+                    let accumulated = run_sensor(&options, &resolved, minimum, &worker)?;
                     worker.check_cancelled()?;
                     let report = match request {
-                        Request::Analyze(minimum) => JobReport::Analysis(CaptureReport {
+                        Request::Analyze(_) => JobReport::Analysis(CaptureReport {
                             capture: path,
-                            report: analyze(&alerts, minimum)
-                                .map_err(|e| JobError::new(JobErrorKind::Read, e))?,
+                            report: accumulated.finish(),
                         }),
                         Request::Evaluate(case) => JobReport::Evaluation(Box::new(
-                            evaluate(&case, &alerts)
+                            accumulated
+                                .finish_evaluation(&case)
                                 .map_err(|e| JobError::new(JobErrorKind::Read, e))?,
                         )),
                     };
@@ -265,6 +274,7 @@ impl CaptureJob {
         JobSnapshot {
             state: data.state,
             alert_records: self.shared.alert_records.load(Ordering::Relaxed),
+            unique_findings: self.shared.unique_findings.load(Ordering::Relaxed),
             output_bytes: self.shared.output_bytes.load(Ordering::Relaxed),
             elapsed_ms: data
                 .elapsed_ms
@@ -344,8 +354,9 @@ impl Drop for SensorChild {
 fn run_sensor(
     options: &SensorOptions,
     path: &Path,
+    minimum: Severity,
     shared: &Arc<Shared>,
-) -> Result<Vec<Alert>, JobError> {
+) -> Result<AlertAccumulator, JobError> {
     shared.check_cancelled()?;
     let mut command = Command::new(&options.executable);
     command.args([
@@ -403,11 +414,11 @@ fn run_sensor(
     let progress = Arc::clone(shared);
     let (tx, rx) = mpsc::channel();
     let reader = thread::spawn(move || {
-        let _ = tx.send(read_alerts(stdout, max_alerts, &progress));
+        let _ = tx.send(read_alerts(stdout, max_alerts, minimum, &progress));
     });
     let errors = thread::spawn(move || bounded_stderr(stderr));
     let start = Instant::now();
-    let mut alerts = None;
+    let mut collected = None;
     let status = loop {
         let interruption = shared.check_cancelled().err().or_else(|| {
             if !options.timeout.is_zero() && start.elapsed() >= options.timeout {
@@ -429,9 +440,9 @@ fn run_sensor(
             let _ = errors.join();
             return Err(error);
         }
-        if alerts.is_none() {
+        if collected.is_none() {
             match rx.try_recv() {
-                Ok(Ok(parsed)) => alerts = Some(parsed),
+                Ok(Ok(parsed)) => collected = Some(parsed),
                 Ok(Err(error)) => {
                     let _ = child.0.kill();
                     let _ = child.0.wait();
@@ -483,8 +494,8 @@ fn run_sensor(
             ),
         ));
     }
-    match alerts {
-        Some(alerts) => Ok(alerts),
+    match collected {
+        Some(accumulated) => Ok(accumulated),
         None => rx
             .recv()
             .map_err(|_| JobError::new(JobErrorKind::Internal, "sensor output reader failed"))?,
@@ -507,10 +518,11 @@ fn bounded_stderr(mut stream: impl Read) -> Vec<u8> {
 fn read_alerts(
     stream: impl Read,
     max_alerts: usize,
+    minimum: Severity,
     shared: &Shared,
-) -> Result<Vec<Alert>, JobError> {
+) -> Result<AlertAccumulator, JobError> {
     let mut reader = BufReader::new(stream);
-    let mut alerts = Vec::new();
+    let mut accumulated = AlertAccumulator::new(minimum);
     let mut line = Vec::new();
     let mut line_number = 0;
     loop {
@@ -537,18 +549,24 @@ fn read_alerts(
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
-        if alerts.len() >= max_alerts {
+        if accumulated.total_alerts() >= max_alerts {
             return Err(JobError::new(JobErrorKind::OutputLimit, format!("sensor exceeded {max_alerts} alert records; adjust the limit or narrow the capture")));
         }
-        alerts.push(serde_json::from_slice(&line).map_err(|e| {
+        let alert: Alert = serde_json::from_slice(&line).map_err(|e| {
             JobError::new(
                 JobErrorKind::Read,
                 format!("invalid sensor JSON at line {line_number}: {e}"),
             )
-        })?);
+        })?;
+        accumulated
+            .push(alert)
+            .map_err(|e| JobError::new(JobErrorKind::Read, e))?;
         shared.alert_records.fetch_add(1, Ordering::Relaxed);
+        shared
+            .unique_findings
+            .store(accumulated.unique_findings(), Ordering::Relaxed);
     }
-    Ok(alerts)
+    Ok(accumulated)
 }
 
 #[cfg(test)]
@@ -565,6 +583,7 @@ mod tests {
             finished: Condvar::new(),
             cancelled: AtomicBool::new(false),
             alert_records: AtomicUsize::new(0),
+            unique_findings: AtomicUsize::new(0),
             output_bytes: AtomicU64::new(0),
             started: Instant::now(),
         }
@@ -573,22 +592,32 @@ mod tests {
     #[test]
     fn output_reader_reports_malformed_input_and_limits() {
         assert_eq!(
-            read_alerts("not json\n".as_bytes(), 10, &shared())
+            read_alerts("not json\n".as_bytes(), 10, Severity::Low, &shared())
                 .unwrap_err()
                 .kind,
             JobErrorKind::Read
         );
         let data = b"{\"rule_id\":\"TH-0001\",\"severity\":\"high\",\"src\":\"10.0.0.1\"}\n";
         assert_eq!(
-            read_alerts(data.as_slice().repeat(2).as_slice(), 1, &shared())
-                .unwrap_err()
-                .kind,
+            read_alerts(
+                data.as_slice().repeat(2).as_slice(),
+                1,
+                Severity::Low,
+                &shared()
+            )
+            .unwrap_err()
+            .kind,
             JobErrorKind::OutputLimit
         );
         assert_eq!(
-            read_alerts(vec![b'x'; 1_048_577].as_slice(), 1, &shared())
-                .unwrap_err()
-                .kind,
+            read_alerts(
+                vec![b'x'; 1_048_577].as_slice(),
+                1,
+                Severity::Low,
+                &shared()
+            )
+            .unwrap_err()
+            .kind,
             JobErrorKind::OutputLimit
         );
     }

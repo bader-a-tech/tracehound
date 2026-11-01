@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 use std::fmt;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -245,38 +245,110 @@ pub struct EvaluationReport {
     pub summary: EvaluationSummary,
 }
 
+/// Incrementally collect findings without retaining every raw alert record.
+///
+/// Only the latest eligible emission of each rule/source/destination tuple is
+/// retained. Repeated emissions increase its occurrence count. Memory therefore
+/// grows with unique findings, while total_alerts still counts ignored records
+/// and duplicates for callers that enforce a record limit.
+#[derive(Debug)]
+pub struct AlertAccumulator {
+    min_severity: Severity,
+    total_alerts: usize,
+    evaluated_alerts: usize,
+    grouped: BTreeMap<FindingKey, Finding>,
+}
+
+impl AlertAccumulator {
+    pub fn new(min_severity: Severity) -> Self {
+        Self {
+            min_severity,
+            total_alerts: 0,
+            evaluated_alerts: 0,
+            grouped: BTreeMap::new(),
+        }
+    }
+
+    /// Consume one record. Rejected eligible records leave all counters and
+    /// findings unchanged, so callers may correct the input and retry. Error
+    /// positions include accepted records below the reporting floor.
+    pub fn push(&mut self, alert: Alert) -> Result<(), String> {
+        if alert.severity < self.min_severity {
+            self.total_alerts += 1;
+            return Ok(());
+        }
+        validate_alert(&alert).map_err(|err| format!("alert {}: {err}", self.total_alerts + 1))?;
+        let key = finding_key(&alert);
+        match self.grouped.entry(key) {
+            Entry::Occupied(mut entry) => {
+                let finding = entry.get_mut();
+                finding.occurrences += 1;
+                finding.alert = alert;
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(Finding {
+                    alert,
+                    occurrences: 1,
+                });
+            }
+        }
+        self.total_alerts += 1;
+        self.evaluated_alerts += 1;
+        Ok(())
+    }
+
+    pub fn total_alerts(&self) -> usize {
+        self.total_alerts
+    }
+
+    pub fn evaluated_alerts(&self) -> usize {
+        self.evaluated_alerts
+    }
+
+    pub fn unique_findings(&self) -> usize {
+        self.grouped.len()
+    }
+
+    pub fn finish(self) -> AnalysisReport {
+        AnalysisReport {
+            schema_version: SCHEMA_VERSION,
+            mode: "analysis",
+            min_severity: self.min_severity,
+            total_alerts: self.total_alerts,
+            evaluated_alerts: self.evaluated_alerts,
+            ignored_alerts: self.total_alerts - self.evaluated_alerts,
+            findings: self.grouped.into_values().collect(),
+        }
+    }
+
+    /// Evaluate the collected findings against a case using the same severity
+    /// floor. A different floor would compare incomplete or excess evidence.
+    pub fn finish_evaluation(self, case: &CaptureCase) -> Result<EvaluationReport, String> {
+        case.validate()?;
+        if self.min_severity != case.min_severity {
+            return Err(format!(
+                "collected severity floor {} does not match evaluation severity floor {}",
+                self.min_severity, case.min_severity
+            ));
+        }
+        Ok(evaluate_analysis(case, self.finish()))
+    }
+}
+
 /// Summarise findings without assuming any ground truth. An empty findings list
 /// says only that no eligible alert was emitted, not that a capture is safe.
 pub fn analyze(alerts: &[Alert], min_severity: Severity) -> Result<AnalysisReport, String> {
-    let mut grouped: BTreeMap<FindingKey, Finding> = BTreeMap::new();
-    let mut evaluated_alerts = 0;
-    for (index, alert) in alerts.iter().enumerate() {
+    let mut accumulator = AlertAccumulator::new(min_severity);
+    for alert in alerts {
         if alert.severity < min_severity {
+            // Borrowed batch clients should not clone evidence that will be
+            // discarded immediately by the streaming reporting floor.
+            accumulator.total_alerts += 1;
             continue;
         }
-        validate_alert(alert).map_err(|err| format!("alert {}: {err}", index + 1))?;
-        evaluated_alerts += 1;
-        let key = finding_key(alert);
-        grouped
-            .entry(key)
-            .and_modify(|finding| {
-                finding.occurrences += 1;
-                finding.alert = alert.clone();
-            })
-            .or_insert_with(|| Finding {
-                alert: alert.clone(),
-                occurrences: 1,
-            });
+        accumulator.push(alert.clone())?;
     }
-    Ok(AnalysisReport {
-        schema_version: SCHEMA_VERSION,
-        mode: "analysis",
-        min_severity,
-        total_alerts: alerts.len(),
-        evaluated_alerts,
-        ignored_alerts: alerts.len() - evaluated_alerts,
-        findings: grouped.into_values().collect(),
-    })
+    Ok(accumulator.finish())
 }
 
 /// Compare observed findings with complete positive labels and optional benign
@@ -284,6 +356,12 @@ pub fn analyze(alerts: &[Alert], min_severity: Severity) -> Result<AnalysisRepor
 pub fn evaluate(case: &CaptureCase, alerts: &[Alert]) -> Result<EvaluationReport, String> {
     case.validate()?;
     let analysis = analyze(alerts, case.min_severity)?;
+    Ok(evaluate_analysis(case, analysis))
+}
+
+// Both callers validate the case and collect at its severity floor before
+// reaching this shared matching path.
+fn evaluate_analysis(case: &CaptureCase, analysis: AnalysisReport) -> EvaluationReport {
     // Index destinations once. Large captures and label sets should not require
     // comparing every finding with every expectation.
     let mut observed: BTreeMap<(String, IpAddr), BTreeSet<Option<IpAddr>>> = BTreeMap::new();
@@ -349,7 +427,7 @@ pub fn evaluate(case: &CaptureCase, alerts: &[Alert]) -> Result<EvaluationReport
         precision: ratio(matched_findings, analysis.findings.len()),
         recall: ratio(matched_expectations.len(), case.expected.len()),
     };
-    Ok(EvaluationReport {
+    EvaluationReport {
         schema_version: SCHEMA_VERSION,
         mode: "evaluation",
         name: case.name.clone(),
@@ -365,7 +443,7 @@ pub fn evaluate(case: &CaptureCase, alerts: &[Alert]) -> Result<EvaluationReport
         unexpected_findings,
         benign_findings,
         summary,
-    })
+    }
 }
 
 type FindingKey = (String, IpAddr, Option<IpAddr>);

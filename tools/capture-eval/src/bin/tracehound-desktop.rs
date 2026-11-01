@@ -39,6 +39,7 @@ struct Desktop {
     collected_result: bool,
     state: Option<JobState>,
     alert_records: usize,
+    unique_findings: usize,
     elapsed_ms: u64,
     search: String,
     view_floor: Severity,
@@ -67,6 +68,7 @@ impl Default for Desktop {
             collected_result: false,
             state: None,
             alert_records: 0,
+            unique_findings: 0,
             elapsed_ms: 0,
             search: String::new(),
             view_floor: Severity::Low,
@@ -119,6 +121,7 @@ impl Desktop {
                 self.result = None;
                 self.collected_result = false;
                 self.alert_records = 0;
+                self.unique_findings = 0;
                 self.elapsed_ms = 0;
                 self.filtered.clear();
                 self.selected = None;
@@ -139,12 +142,16 @@ impl Desktop {
             let snapshot = job.snapshot();
             self.state = Some(snapshot.state);
             self.alert_records = snapshot.alert_records;
+            self.unique_findings = snapshot.unique_findings;
             self.elapsed_ms = snapshot.elapsed_ms;
             if !self.collected_result {
                 if let Some(result) = job.try_result() {
                     self.collected_result = true;
                     match result {
                         Ok(report) => {
+                            if let JobReport::Analysis(capture) = report.as_ref() {
+                                self.unique_findings = capture.report.findings.len();
+                            }
                             self.result = Some(report);
                             self.error = None;
                             self.rebuild_filter();
@@ -295,7 +302,7 @@ impl Desktop {
                 });
             });
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if ui.add_enabled(!active && !self.closing, egui::Button::new("Analyse capture").min_size(egui::vec2(140.0, 32.0))).clicked() {
                     self.start();
                 }
@@ -309,11 +316,16 @@ impl Desktop {
                 }
                 ui.strong(status_label(self.state));
                 if self.state.is_some() {
-                    ui.label(format!("{} alert records · {:.1}s", self.alert_records, self.elapsed_ms as f64 / 1000.0));
+                    let findings = if matches!(self.state, Some(JobState::Completed)) {
+                        format!("{} findings", self.unique_findings)
+                    } else {
+                        format!("{} findings so far (provisional)", self.unique_findings)
+                    };
+                    ui.label(format!("{findings} · {} alert records · {:.1}s", self.alert_records, self.elapsed_ms as f64 / 1000.0));
                 }
             });
             if active {
-                ui.small("Reading and analysing the capture. Alert records are findings emitted by the sensor, not packet counts or a completion percentage.");
+                ui.small("Findings so far are provisional until analysis completes. Repeated alert records are grouped into unique findings at the selected analysis severity; these counts are not packet progress.");
             }
         });
     }
