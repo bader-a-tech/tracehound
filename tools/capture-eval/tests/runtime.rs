@@ -5,10 +5,13 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracehound_eval::runtime::{CaptureJob, JobErrorKind, JobReport, JobState, SensorOptions};
 use tracehound_eval::{CaptureCase, Expectation, Severity};
+
+static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
 struct Fixture {
     directory: PathBuf,
@@ -20,12 +23,13 @@ impl Fixture {
     fn new() -> Self {
         let parent = fs::canonicalize(std::env::temp_dir()).expect("resolve temporary root");
         let directory = parent.join(format!(
-            "tracehound runtime {} {}",
+            "tracehound runtime {} {} {}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&directory).expect("create isolated runtime fixture");
         fs::write(

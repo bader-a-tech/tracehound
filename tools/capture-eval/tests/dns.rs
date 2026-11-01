@@ -1,8 +1,11 @@
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracehound_eval::{capture::DnsObservation, dns::DnsPolicy, Severity};
+
+static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
 struct Rules(PathBuf);
 impl Rules {
@@ -11,8 +14,11 @@ impl Rules {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root =
-            std::env::temp_dir().join(format!("tracehound-dns-{}-{unique}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "tracehound-dns-{}-{unique}-{}",
+            std::process::id(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
         fs::create_dir(&root).unwrap();
         fs::write(root.join("policy.yaml"), body).unwrap();
         Self(root)
