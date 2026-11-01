@@ -92,6 +92,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: tools/capture-eval
+          cache-on-failure: true
 
       - name: verify application version
         env:

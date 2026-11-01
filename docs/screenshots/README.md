@@ -11,11 +11,11 @@ records this as a controlled periodic-connection experiment; it is not an infect
 label or a general accuracy claim. Capture bytes are downloaded locally and are
 not included in this directory.
 
-- Source revision: `7f6b8d86d078f561a4c8b9f799a23900a28879d1`.
-- [Successful CI run](https://github.com/bader-a-tech/tracehound/actions/runs/41292904532).
-- Artifact: `product-validation-linux`, ID `13077818893`.
-- Downloaded ZIP SHA-256: `5909321983f4e88a60656d3ed04a177cbc16e109cf4d6e801022276cc73bad66`.
-- Screenshot SHA-256: `4795b7a0e02362af0bf227700de70d5264d400d1567d64c4ff33b5f98d63607e`.
+- Source revision: `f3d7fee41c5c5a6ad00484bdf6d9c8845274df38`.
+- [Successful CI run](https://github.com/bader-a-tech/tracehound/actions/runs/41293685067).
+- Artifact: `product-validation-linux`, ID `13078071896`.
+- Downloaded ZIP SHA-256: `f9fa7f60925e6f887b8fc3f272d5664802f95ea70a4d3dee92427423b55a07c1`.
+- Screenshot SHA-256: `3b8f5c93104e65d37e4e1856a79e60d15a52d5ad9ae3096851a46e84657da27e`.
 
 Reproduce with the built Rust executables, a Linux graphical session or Xvfb,
 and the documented desktop runtime dependencies:
