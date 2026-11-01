@@ -38,17 +38,25 @@ fn emit(value: u8) {
     std::io::stdout().flush().unwrap();
 }
 
+fn emit_info() {
+    println!(r#"{{"rule_id":"TH-0006","severity":"info","src":"10.7.0.10","title":"New device","evidence":{{}}}}"#);
+    std::io::stdout().flush().unwrap();
+}
+
 fn main() {
     let path = std::path::PathBuf::from(std::env::args_os().nth(2).unwrap());
     match std::fs::read(&path).unwrap()[0] {
         b'b' => {
             emit(1);
+            emit(2);
+            emit_info();
             std::fs::write(path.with_extension("started"), b"ready").unwrap();
             while !path.with_extension("release").exists() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
         }
         b's' => { emit(1); emit(2); }
+        b'l' => { emit(1); emit(2); emit_info(); }
         b't' => std::thread::sleep(std::time::Duration::from_secs(30)),
         b'e' => { eprintln!("sensor failed intentionally"); std::process::exit(7); }
         b'd' => {
@@ -148,13 +156,14 @@ fn case(capture: &Path, rule_id: &str) -> CaptureCase {
 fn jobs_expose_live_progress_and_preserve_distinct_terminal_outcomes() {
     let fixture = Fixture::new();
 
-    // A record is available while the child is still blocked, rather than
-    // progress appearing only after the output reader reaches EOF.
+    // Records and deduplicated findings are available while the child is still
+    // blocked. The duplicate and informational event do not add unique findings.
     let blocked = fixture.input("blocked capture.pcap", b'b');
     let job = CaptureJob::analyze(blocked.clone(), fixture.options(), Severity::Low).unwrap();
-    until(|| job.snapshot().alert_records == 1, "live alert record");
+    until(|| job.snapshot().alert_records == 3, "live alert records");
     let progress = job.snapshot();
     assert_eq!(progress.state, JobState::Running);
+    assert_eq!(progress.unique_findings, 1);
     assert!(progress.output_bytes > 0);
     assert!(progress.error.is_none());
     assert!(job.try_result().is_none());
@@ -195,6 +204,7 @@ fn jobs_expose_live_progress_and_preserve_distinct_terminal_outcomes() {
     let result = completed.wait().unwrap();
     assert_eq!(completed.snapshot().state, JobState::Completed);
     assert_eq!(completed.snapshot().alert_records, 2);
+    assert_eq!(completed.snapshot().unique_findings, 1);
     let JobReport::Analysis(report) = result.as_ref() else {
         panic!("analysis job returned evaluation");
     };
@@ -244,6 +254,24 @@ fn jobs_expose_live_progress_and_preserve_distinct_terminal_outcomes() {
     assert_eq!(error.kind, JobErrorKind::SensorFailed);
     assert!(error.message.contains("sensor failed intentionally"));
     assert_eq!(failed.snapshot().state, JobState::Failed);
+
+    // The limit counts every input record, including repeated findings and
+    // records below the selected reporting floor.
+    for maximum in [1, 2] {
+        let limited = CaptureJob::analyze(
+            fixture.input(&format!("limited {maximum}.pcap"), b'l'),
+            SensorOptions {
+                max_alerts: maximum,
+                ..fixture.options()
+            },
+            Severity::Low,
+        )
+        .unwrap();
+        assert_eq!(limited.wait().unwrap_err().kind, JobErrorKind::OutputLimit);
+        assert_eq!(limited.snapshot().state, JobState::Failed);
+        assert_eq!(limited.snapshot().alert_records, maximum);
+        assert_eq!(limited.snapshot().unique_findings, 1);
+    }
 
     let dropped_input = fixture.input("dropped.pcap", b'd');
     let dropped =

@@ -60,7 +60,9 @@ cargo run --release --locked --manifest-path tools/capture-eval/Cargo.toml --fea
 
 Drop your capture into the window or paste its path, then start analysis. The GUI
 uses the same Rust job backend as the evaluation CLI, with cancellation, status,
-searchable findings, evidence, and JSON export. It locates a nearby sensor binary
+live counts of unique findings, searchable findings, evidence, and JSON export.
+The backend groups repeated alerts as they arrive to reduce memory use. The GUI
+locates a nearby sensor binary
 or lets you select its executable path in Analysis settings.
 
 ## Quick start

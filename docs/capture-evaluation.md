@@ -201,8 +201,10 @@ application. `CaptureJob::analyze` starts an unlabelled capture analysis;
 job while its worker launches the sensor, parses output, and assembles the report.
 
 - `snapshot()` returns cheap lifecycle metadata, elapsed milliseconds, alert
-  records read, output bytes read, and any terminal error. Output bytes describe
-  the sensor's JSONL stream, not capture bytes or packet progress.
+  records read, unique findings received so far, output bytes read, and any
+  terminal error. Finding counts are provisional until the sensor succeeds.
+  Output bytes describe the sensor's JSONL stream, not capture bytes or packet
+  progress.
 - `cancel()` requests cancellation without blocking the caller. Repeated
   cancellation is safe; a terminal job remains terminal.
 - `try_result()` polls for a completed result without waiting.
@@ -219,6 +221,27 @@ desktop application handles that close sequence.
 The existing `analyze` and `evaluate` functions remain available when a caller
 already has sensor alerts. Versioned JSON reports retain findings and evidence
 for investigation and export.
+
+## Streaming and memory use
+
+The Rust job backend groups alert records as they arrive. It retains the latest
+eligible record for each rule/source/destination combination and its occurrence
+count, instead of buffering every raw alert until the sensor finishes. Records
+below the reporting floor contribute to counters without being retained. A later
+below-floor update does not replace evidence collected above the floor.
+
+Memory therefore scales with unique retained findings and their evidence. It is
+not a constant memory bound: captures with many unique findings can still use
+substantial memory. The existing `--max-alerts` guard still counts every alert
+record, including repeated findings and ignored informational events. A limit,
+parse error, cancellation, or sensor failure does not produce a completed report.
+
+Library clients receiving alerts incrementally can use `AlertAccumulator`:
+construct it with the reporting severity, transfer each alert through `push`,
+read its cheap counters, then consume it with `finish` or `finish_evaluation`.
+Rejected eligible records leave its counters and findings unchanged. Labelled
+evaluation requires the accumulator's reporting floor to match the case's floor.
+The slice-based APIs and JSON report schema remain compatible.
 
 ## Development checks
 
