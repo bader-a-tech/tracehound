@@ -314,6 +314,19 @@ impl CaseBuilder {
                 &serde_json::to_value(value).map_err(|e| e.to_string())?,
             )?;
         }
+        for value in &decoded.peer_protocols {
+            self.event(
+                observation_time(&value.packets, value.timestamp_ms),
+                "peer_protocol",
+                value.src,
+                Some(value.dst),
+                "BitTorrent peer handshake observed (one direction)".into(),
+                "packet",
+                &value.packets,
+                false,
+                &serde_json::to_value(value).map_err(|e| e.to_string())?,
+            )?;
+        }
         Ok(())
     }
     fn flow(&self, packet: &crate::capture::DecodedPacket) -> Result<(), String> {

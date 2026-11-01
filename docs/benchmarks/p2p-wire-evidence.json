@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "mode": "independent_beacon_wire_profile",
+  "application_reference": "Tracehound 0.6.0",
+  "executed_on": "2026-11-01",
+  "tool": "TShark (Wireshark) 4.6.9 (v4.6.9-0-g2d548b197c75).",
+  "sources": [
+    {
+      "id": "ctu-normal-p2p",
+      "bytes": 417195191,
+      "sha256": "9daf9c1746dae37a234bac32090e8bc925e837af78cfffc3b4cc7c46d901542b",
+      "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-7/README.html",
+      "classification": "publisher-verified normal P2P/web/messaging traffic"
+    },
+    {
+      "id": "stratosphere-periodic-c2",
+      "bytes": 2072846,
+      "sha256": "2276e5ac0303296b71d3363c6e844cd94adcac6b256d2b2d4b1c7aa3ccaed035",
+      "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-1-pcap",
+      "classification": "controlled periodic network capture"
+    },
+    {
+      "id": "stratosphere-jittered-c2",
+      "bytes": 264119,
+      "sha256": "03e3e0b3e47fcb8801870fc00fd8f7e8f1924bb5398c4ecf28f811eaaf62cdbc",
+      "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-2-pcap",
+      "classification": "controlled semi-periodic network capture"
+    }
+  ],
+  "method": [
+    "All packet inspection used installed tshark offline, with name resolution disabled (-n); no captured content was executed or sent onto a network.",
+    "The 18 destinations were selected from the existing published TH-0001 normal-P2P findings, then packet fields, TCP flags, payload lengths, and independent protocol dissections were inspected.",
+    "Rows with nested/comma-separated IPv4 addresses were excluded from TCP session counts so ICMP errors quoting an original TCP SYN were not counted as new TCP packets.",
+    "TCP flags are represented as True/False by this tshark version; sessions were grouped using its tcp.stream field. Payload sizes use tcp.len, not on-wire frame lengths.",
+    "The normal P2P capture has out-of-order timestamps. Listed start intervals follow packet order and include retransmissions where shown; they are wire diagnostics, not re-labelled detector output."
+  ],
+  "findings_breakdown": {
+    "total_unique_findings": 18,
+    "tcp_reference_groups": 17,
+    "dns_reference_groups": 1,
+    "tcp_groups_with_zero_synack_and_zero_payload_both_directions": 12,
+    "tcp_groups_with_payload_and_independent_bittorrent_context": 5
+  },
+  "positive_capture_counts": [
+    {
+      "capture": "stratosphere-periodic-c2",
+      "label_src": "147.32.80.37",
+      "label_dst": "141.193.213.21",
+      "out_syn": 297,
+      "synack_in": 297,
+      "out_payload_packets": 2367,
+      "in_payload_packets": 1639,
+      "out_protocols": "TCP,TLSv1.2,TLSv1.3"
+    },
+    {
+      "capture": "stratosphere-jittered-c2",
+      "label_src": "147.32.80.37",
+      "label_dst": "141.193.213.20",
+      "out_syn": 22,
+      "synack_in": 22,
+      "out_payload_packets": 175,
+      "in_payload_packets": 124,
+      "out_protocols": "TCP,TLSv1.2,TLSv1.3"
+    }
+  ],
+  "protocol_context": {
+    "plaintext_bittorrent_peer_groups": 5,
+    "plaintext_handshake_stream_counts": [
+      10,
+      9,
+      10,
+      9,
+      7
+    ],
+    "plaintext_handshake_streams_with_inbound_application_payload": 0,
+    "opaque_bidirectional_stream_counts": [
+      10,
+      9,
+      9,
+      10,
+      6
+    ],
+    "full_handshake_bytes": 68,
+    "interpretation": "Plaintext BitTorrent handshakes sent by the local host; the same peers also have opaque bidirectional payload sessions.",
+    "limitation": "The opaque sessions cannot be passively identified as encrypted BitTorrent with certainty from these payloads; no blanket peer whitelist is justified.",
+    "dns_interval_cv": 2.57,
+    "dns_interval_mad_ratio": 0.1,
+    "dns_interpretation": "The one resolver group aggregates different decoded query names. Favoring MAD over CV can make mixed traffic appear periodic."
+  },
+  "limits": [
+    "This is a profile of one publisher-verified normal P2P trace and two reviewed controlled positive captures, not field malware recall or general false-positive probability.",
+    "A stricter bidirectional payload requirement can discard one-way or partially observed sessions; it should not silently imply benignness.",
+    "The five mixed plaintext/opaque peer groups may remain noisy under the conservative first change; retain and report them honestly."
+  ]
+}

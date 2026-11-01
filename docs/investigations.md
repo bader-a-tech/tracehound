@@ -27,7 +27,7 @@ Custom rule directories replace the Rust built-in pack: only listed, enabled
 rules run. The legacy Go engine has different replacement semantics and coverage.
 
 The index stores original packet metadata, connection counters, decoded DNS,
-TLS and cleartext HTTP events, and findings. It uses disk-backed SQLite with a
+TLS, cleartext HTTP and peer-protocol events, and findings. It uses disk-backed SQLite with a
 bounded cache. Case size grows with captured packets and events; it is separate
 from the bounded inline context in an ordinary JSON analysis report.
 
@@ -51,6 +51,14 @@ meanings. A decoded DNS name comes from referenced bytes. A finding may depend o
 many packets across a time window. Traffic sharing an address or a time window
 does not establish causation. Evidence lists have explicit caps; truncation flags
 remain visible. The packet table still indexes every accepted original frame.
+
+Periodic-connection findings include a session evidence card. It separates
+qualifying application sessions from connection attempts, shows observed response
+and payload direction, and lists decoded protocol context alongside timing and
+size measurements. A BitTorrent marker means a complete peer header was observed
+in one direction; opaque sessions remain unclassified. Scheduled services and
+legitimate peer traffic can also be periodic. Follow the original packet
+references and surrounding host activity when assessing a finding.
 
 ## Verify and export evidence
 

@@ -640,6 +640,16 @@ fn run_rust_capture(
                     dropped += 1;
                 }
             }
+            for value in &events.peer_protocols {
+                if retained.peer_protocols.len() < 5000
+                    && references + value.packets.len() <= 16_384
+                {
+                    references += value.packets.len();
+                    retained.peer_protocols.push(value.clone());
+                } else {
+                    dropped += 1;
+                }
+            }
             Ok(())
         });
     shared.check_cancelled()?;
@@ -660,6 +670,7 @@ fn run_rust_capture(
     enrichment.http = retained.http;
     enrichment.tls = retained.tls;
     enrichment.tls_clients = retained.tls_clients;
+    enrichment.peer_protocols = retained.peer_protocols;
     if dropped > 0 {
         enrichment.warnings.push(format!("Inline report context omitted {dropped} observations at its count/reference limits; create an investigation index to retain every decoded event."));
     }

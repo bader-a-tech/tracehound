@@ -5,6 +5,9 @@
 //! decoded. TLS fingerprints cover TCP ClientHello/ServerHello only. Algorithms
 //! are independently implemented from public field descriptions; no FoxIO
 //! reference code or restricted expected-value corpus is included.
+//! BitTorrent context recognizes only the complete 68-byte BEP 3 peer header at
+//! a captured contiguous TCP prefix: <https://www.bittorrent.org/beps/bep_0003.html>.
+//! It does not decode encrypted peer negotiation or establish a two-way exchange.
 //!
 //! Protocol references: RFC 791, RFC 8200, RFC 5722, RFC 8446, and the published
 //! RFC 8448 section 3 handshake bytes. JA4H field layout is described by FoxIO's
@@ -149,6 +152,8 @@ pub struct CaptureEnrichment {
     pub tls: Vec<TlsObservation>,
     #[serde(default)]
     pub tls_clients: Vec<TlsClientObservation>,
+    #[serde(default)]
+    pub peer_protocols: Vec<PeerProtocolObservation>,
     pub dns: Vec<DnsObservation>,
     pub warnings: Vec<String>,
     #[serde(default)]
@@ -200,6 +205,20 @@ pub struct TlsClientObservation {
     pub dst_port: u16,
     pub ja4: String,
     pub server_name: Option<String>,
+    pub timestamp_ms: u64,
+    pub packets: Vec<PacketRef>,
+}
+
+/// A complete protocol header observed in one direction of a captured stream.
+/// This does not establish a bidirectional session or identify opaque traffic.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PeerProtocolObservation {
+    pub src: IpAddr,
+    pub dst: IpAddr,
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub protocol: String,
+    pub handshake_bytes: usize,
     pub timestamp_ms: u64,
     pub packets: Vec<PacketRef>,
 }
@@ -272,6 +291,7 @@ pub struct DecodeEvents {
     pub http: Vec<HttpObservation>,
     pub tls: Vec<TlsObservation>,
     pub tls_clients: Vec<TlsClientObservation>,
+    pub peer_protocols: Vec<PeerProtocolObservation>,
     pub dns: Vec<DnsObservation>,
     pub warnings: Vec<String>,
     pub diagnostics: CaptureDiagnostics,
@@ -330,7 +350,7 @@ pub fn scan_capture(
 }
 
 /// Streaming mode drains protocol observations after each callback. Returned
-/// HTTP/TLS/DNS arrays are empty; callbacks can persist every event to disk.
+/// Protocol-observation arrays are empty; callbacks can persist every event to disk.
 pub fn scan_capture_events(
     input: &Path,
     output: Option<&Path>,
@@ -850,6 +870,7 @@ impl Inspector {
             http: std::mem::take(&mut self.report.http),
             tls: std::mem::take(&mut self.report.tls),
             tls_clients: std::mem::take(&mut self.report.tls_clients),
+            peer_protocols: std::mem::take(&mut self.report.peer_protocols),
             dns: std::mem::take(&mut self.report.dns),
             warnings: std::mem::take(&mut self.report.warnings),
             diagnostics: self.report.diagnostics.clone(),
@@ -1433,6 +1454,36 @@ impl Inspector {
         }
         support.sort_by_key(|packet| packet.number);
         support.dedup_by_key(|packet| packet.number);
+        // BEP 3: pstrlen + protocol + reserved + info_hash + peer_id = 68 bytes.
+        // Match only the captured contiguous prefix, independent of TCP ports.
+        // Do not retain the info-hash or peer ID in protocol observations.
+        if contiguous.len() >= 68
+            && contiguous[0] == 19
+            && &contiguous[1..20] == b"BitTorrent protocol"
+        {
+            if self.report.peer_protocols.len() < MAX_OBSERVATIONS
+                && self.retain_references(support.len())
+            {
+                self.report.peer_protocols.push(PeerProtocolObservation {
+                    src,
+                    dst,
+                    src_port: key.source.port,
+                    dst_port: key.destination.port,
+                    protocol: "bittorrent_peer".into(),
+                    handshake_bytes: 68,
+                    timestamp_ms: support
+                        .iter()
+                        .map(|p| p.timestamp_ns / 1_000_000)
+                        .min()
+                        .unwrap_or(at),
+                    packets: support,
+                });
+            } else {
+                self.warn("Peer protocol observation limit reached");
+            }
+            self.complete_stream(&key);
+            return;
+        }
         if let Some((method, host, ja4h, header_count)) = http_fingerprint(&contiguous) {
             if self.report.http.len() < MAX_OBSERVATIONS && self.retain_references(support.len()) {
                 self.report.http.push(HttpObservation {

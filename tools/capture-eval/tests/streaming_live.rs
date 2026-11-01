@@ -3,7 +3,9 @@ use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracehound_eval::capture::{DecodeEvents, DecodedPacket, PacketRef};
+use tracehound_eval::capture::{
+    DecodeEvents, DecodedPacket, DnsObservation, PacketRef, PeerProtocolObservation,
+};
 use tracehound_eval::streaming::{read_pcap_stream, StreamOptions, StreamingAnalyzer};
 use tracehound_eval::Severity;
 
@@ -91,6 +93,7 @@ fn periodic_outbound_connections_have_bounded_original_packet_evidence() {
             &mut analyzer,
             packet("10.0.0.5", "198.51.100.9", port, 443, at, 2, 60),
         ));
+        alerts.extend(push(&mut analyzer, data_packet(port, 443, at + 50, 48)));
         alerts.extend(push(
             &mut analyzer,
             packet("10.0.0.5", "198.51.100.9", port, 443, at + 100, 4, 60),
@@ -111,6 +114,11 @@ fn periodic_outbound_connections_have_bounded_original_packet_evidence() {
         .find(|alert| alert.rule_id == "TH-0001")
         .unwrap();
     assert_eq!(beacon.evidence["interval_mean_s"], 60.0);
+    assert_eq!(
+        beacon.evidence["session_confirmation"],
+        "observed_outbound_payload"
+    );
+    assert!(beacon.score.is_some_and(|score| score >= 0.75));
     assert!(beacon.extra["packets"].as_array().unwrap().len() >= 8);
     let summary = analyzer.finish().unwrap();
     assert!(summary
@@ -126,6 +134,396 @@ fn periodic_outbound_connections_have_bounded_original_packet_evidence() {
             .len(),
         64
     );
+}
+
+fn data_packet(
+    source_port: u16,
+    destination_port: u16,
+    at: u64,
+    payload_bytes: usize,
+) -> DecodedPacket {
+    let mut data = packet(
+        "10.0.0.5",
+        "198.51.100.9",
+        source_port,
+        destination_port,
+        at,
+        0x18,
+        60 + payload_bytes as u64,
+    );
+    data.payload = vec![0xa5; payload_bytes];
+    data.tcp_sequence = Some(u32::from(source_port) + 1);
+    data
+}
+
+fn beacon_rules(extra_tuning: &str) -> Rules {
+    Rules::new(&format!("id: TH-0001\nname: Beacon\ndetector: beaconing\ntuning:\n  min_connections: 8\n{extra_tuning}"))
+}
+
+#[test]
+fn periodic_syn_retries_and_control_only_responses_do_not_supply_session_timing() {
+    let rules = beacon_rules("");
+    let mut analyzer = StreamingAnalyzer::new(rules.options()).unwrap();
+    let mut alerts = Vec::new();
+    for index in 0..20 {
+        let port = 40_000 + index;
+        let at = u64::from(index) * 60_000;
+        alerts.extend(push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 41191, at, 2, 60),
+        ));
+        alerts.extend(push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 41191, at + 100, 2, 60),
+        ));
+        if index % 2 == 0 {
+            alerts.extend(push(
+                &mut analyzer,
+                packet("198.51.100.9", "10.0.0.5", 41191, port, at + 200, 0x14, 60),
+            ));
+        }
+    }
+    let summary = analyzer.finish().unwrap();
+    assert!(alerts.is_empty());
+    assert!(summary.report.findings.is_empty());
+    assert_eq!(summary.stats.beacon_retained_sessions, 20);
+    assert_eq!(summary.stats.beacon_qualifying_sessions, 0);
+    assert_eq!(summary.stats.beacon_control_only_sessions, 20);
+    assert_eq!(summary.stats.beacon_insufficient_payload_groups, 1);
+    assert_eq!(summary.stats.beacon_syn_retransmissions_ignored, 20);
+}
+
+#[test]
+fn mixed_attempts_keep_one_sided_unknown_application_sessions_on_unusual_ports() {
+    let rules = beacon_rules("");
+    let mut analyzer = StreamingAnalyzer::new(rules.options()).unwrap();
+    for index in 0..16 {
+        let port = 40_000 + index;
+        let at = u64::from(index) * 60_000;
+        push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 41191, at, 2, 60),
+        );
+        if index % 2 == 0 {
+            push(&mut analyzer, data_packet(port, 41191, at + 1, 53));
+        }
+    }
+    let summary = analyzer.finish().unwrap();
+    let alert = &summary.report.findings[0].alert;
+    assert_eq!(alert.evidence["connections"], 8);
+    assert_eq!(alert.evidence["connection_attempts"], 16);
+    assert_eq!(alert.evidence["control_only_sessions"], 8);
+    assert_eq!(alert.evidence["interval_mean_s"], 120.0);
+    assert_eq!(alert.evidence["response_observed_sessions"], 0);
+    assert_eq!(alert.evidence["tcp_syn_ack_sessions"], 0);
+    assert_eq!(alert.evidence["unclassified_sessions"], 8);
+    assert_eq!(alert.evidence["mean_payload_bytes_to_server"], 53.0);
+    assert_eq!(alert.evidence["ip_protocol"], 6);
+}
+
+#[test]
+fn duplicate_timestamp_burst_cannot_inflate_measured_interval_support() {
+    let rules = beacon_rules("");
+    let mut analyzer = StreamingAnalyzer::new(rules.options()).unwrap();
+    for index in 0..8 {
+        let port = 40_000 + index;
+        let at = if index == 7 { 60_000 } else { 0 };
+        push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 41191, at, 2, 60),
+        );
+        push(&mut analyzer, data_packet(port, 41191, at + 1, 53));
+    }
+    let summary = analyzer.finish().unwrap();
+    assert!(summary.report.findings.is_empty());
+    assert_eq!(summary.stats.beacon_qualifying_sessions, 8);
+    assert_eq!(summary.stats.beacon_insufficient_interval_groups, 1);
+}
+
+#[test]
+fn same_sequence_after_data_or_half_close_starts_another_episode() {
+    let rules = beacon_rules("");
+    let mut analyzer = StreamingAnalyzer::new(rules.options()).unwrap();
+    for index in 0..8 {
+        let at = index * 10_000;
+        push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", 40_000, 41191, at, 2, 60),
+        );
+        push(&mut analyzer, data_packet(40_000, 41191, at + 1, 53));
+        if index % 2 == 0 {
+            push(
+                &mut analyzer,
+                packet("10.0.0.5", "198.51.100.9", 40_000, 41191, at + 2, 0x11, 60),
+            );
+        }
+    }
+    let summary = analyzer.finish().unwrap();
+    assert_eq!(
+        summary.report.findings[0].alert.evidence["qualifying_sessions"],
+        8
+    );
+    assert_eq!(summary.stats.beacon_syn_retransmissions_ignored, 0);
+}
+
+#[test]
+fn end_of_capture_scores_active_session_sizes_and_matches_syn_ack_acknowledgements() {
+    let rules = beacon_rules("  threshold: 0.99\n");
+    let mut analyzer = StreamingAnalyzer::new(rules.options()).unwrap();
+    for index in 0..8 {
+        let port = 40_000 + index;
+        let at = u64::from(index) * 10_000;
+        push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 41191, at, 2, 60),
+        );
+        let mut response = packet("198.51.100.9", "10.0.0.5", 41191, port, at + 1, 0x12, 60);
+        response.tcp_ack = Some(u32::from(port) + if index % 2 == 0 { 1 } else { 9 });
+        push(&mut analyzer, response);
+        push(&mut analyzer, data_packet(port, 41191, at + 2, 53));
+    }
+    let summary = analyzer.finish().unwrap();
+    let alert = &summary.report.findings[0].alert;
+    assert_eq!(alert.evidence["mean_bytes_to_server"], 173.0);
+    assert_eq!(alert.evidence["size_consistency"], 1.0);
+    assert_eq!(alert.evidence["tcp_syn_ack_sessions"], 4);
+    assert_eq!(alert.evidence["response_observed_sessions"], 8);
+    assert_eq!(alert.evidence["bidirectional_payload_sessions"], 0);
+    assert_eq!(summary.stats.active_flows, 0);
+}
+
+#[test]
+fn history_expiry_drops_linked_sizes_and_reordered_starts_use_time_order() {
+    let rules = beacon_rules("  history: 9s\n  min_interval: 1s\n  threshold: 0.99\n");
+    let mut analyzer = StreamingAnalyzer::new(rules.options()).unwrap();
+    for index in 0..8 {
+        let port = 40_000 + index;
+        let at = u64::from(index) * 1000;
+        push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 41191, at, 2, 60),
+        );
+        push(&mut analyzer, data_packet(port, 41191, at + 1, 53));
+        push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 41191, at + 2, 4, 60),
+        );
+    }
+    analyzer.tick(20_000).unwrap();
+    assert_eq!(analyzer.stats().beacon_retained_sessions, 0);
+    let mut alerts = Vec::new();
+    for index in [3u16, 0, 1, 2, 4, 5, 6, 7] {
+        let port = 41_000 + index;
+        let at = 630_000 + u64::from(index) * 1000;
+        alerts.extend(push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 41191, at, 2, 60),
+        ));
+        alerts.extend(push(
+            &mut analyzer,
+            data_packet(port, 41191, at + 1, 1usize << index),
+        ));
+    }
+    alerts.extend(analyzer.tick(638_000).unwrap().alerts);
+    assert!(alerts.is_empty());
+    assert_eq!(analyzer.stats().beacon_retained_sessions, 8);
+    assert_eq!(analyzer.stats().beacon_qualifying_sessions, 8);
+    assert!(analyzer.stats().out_of_order_packets >= 3);
+    assert_eq!(analyzer.stats().beacon_sessions_dropped, 0);
+}
+
+#[test]
+fn per_track_pressure_evicts_whole_sessions_and_their_size_evidence() {
+    let rules = beacon_rules("");
+    let mut options = rules.options();
+    options.limits.max_starts_per_track = 8;
+    let mut analyzer = StreamingAnalyzer::new(options).unwrap();
+    for index in 0..16 {
+        let port = 40_000 + index;
+        let at = u64::from(index) * 60_000;
+        push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 41191, at, 2, 60),
+        );
+        push(
+            &mut analyzer,
+            data_packet(port, 41191, at + 1, if index < 8 { 8000 } else { 53 }),
+        );
+    }
+    let final_alerts = analyzer.tick(1_600_000).unwrap().alerts;
+    let alert = &final_alerts[0];
+    assert_eq!(alert.evidence["mean_payload_bytes_to_server"], 53.0);
+    assert_eq!(alert.evidence["connection_attempts"], 8);
+    let summary = analyzer.finish().unwrap();
+    assert_eq!(summary.stats.beacon_sessions_dropped, 8);
+    assert_eq!(summary.stats.beacon_retained_sessions, 8);
+}
+
+#[test]
+fn protocol_headers_are_session_context_and_do_not_suppress_unknown_peer_traffic() {
+    let rules = beacon_rules("");
+    let mut analyzer = StreamingAnalyzer::new(rules.options()).unwrap();
+    for index in 0..8 {
+        let port = 40_000 + index;
+        let at = u64::from(index) * 10_000;
+        push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 41191, at, 2, 60),
+        );
+        let data = data_packet(port, 41191, at + 1, 68);
+        let marker = PeerProtocolObservation {
+            src: data.src,
+            dst: data.dst,
+            src_port: data.src_port,
+            dst_port: data.dst_port,
+            protocol: "bittorrent_peer".into(),
+            handshake_bytes: if index == 0 { 68 } else { 20 },
+            timestamp_ms: data.timestamp_ms,
+            packets: data.packets.clone(),
+        };
+        analyzer
+            .observe(DecodeEvents {
+                packet: Some(data),
+                peer_protocols: vec![marker],
+                ..Default::default()
+            })
+            .unwrap();
+    }
+    let summary = analyzer.finish().unwrap();
+    let alert = &summary.report.findings[0].alert;
+    assert_eq!(alert.evidence["qualifying_sessions"], 8);
+    assert_eq!(alert.evidence["protocol_context"]["bittorrent_peer"], 1);
+    assert_eq!(alert.evidence["unclassified_sessions"], 7);
+    assert_eq!(alert.evidence["bidirectional_payload_sessions"], 0);
+    assert_eq!(
+        alert.evidence["session_confirmation"],
+        "observed_outbound_payload"
+    );
+}
+
+#[test]
+fn udp_dns_observations_do_not_label_a_tcp_session_with_the_same_endpoints() {
+    let rules = beacon_rules("");
+    let mut analyzer = StreamingAnalyzer::new(rules.options()).unwrap();
+    for index in 0..8 {
+        let port = 40_000 + index;
+        let at = u64::from(index) * 10_000;
+        push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 53, at, 2, 60),
+        );
+        let data = data_packet(port, 53, at + 1, 68);
+        let query = DnsObservation {
+            src: data.src,
+            dst: data.dst,
+            src_port: port,
+            dst_port: 53,
+            timestamp_ms: data.timestamp_ms,
+            name: "example.org".into(),
+            query_type: 1,
+            packets: data.packets.clone(),
+        };
+        analyzer
+            .observe(DecodeEvents {
+                packet: Some(data),
+                dns: vec![query],
+                ..Default::default()
+            })
+            .unwrap();
+    }
+    let summary = analyzer.finish().unwrap();
+    let alert = &summary.report.findings[0].alert;
+    assert!(alert.evidence["protocol_context"]
+        .as_object()
+        .unwrap()
+        .is_empty());
+    assert_eq!(alert.evidence["unclassified_sessions"], 8);
+}
+
+#[test]
+fn inbound_only_payload_is_distinguished_from_control_only_and_qualifying_sessions() {
+    let rules = beacon_rules("");
+    let mut options = rules.options();
+    options.limits.tick_ms = 1_000_000;
+    let mut analyzer = StreamingAnalyzer::new(options).unwrap();
+    for index in 0..16 {
+        let port = 40_000 + index;
+        let at = u64::from(index) * 10_000;
+        push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 41191, at, 2, 60),
+        );
+        if index % 2 == 0 {
+            push(&mut analyzer, data_packet(port, 41191, at + 1, 53));
+        } else {
+            let mut inbound = packet("198.51.100.9", "10.0.0.5", 41191, port, at + 1, 0x18, 80);
+            inbound.payload = vec![0x42; 20];
+            push(&mut analyzer, inbound);
+        }
+    }
+    let summary = analyzer.finish().unwrap();
+    let alert = &summary.report.findings[0].alert;
+    assert_eq!(alert.evidence["connection_attempts"], 16);
+    assert_eq!(alert.evidence["qualifying_sessions"], 8);
+    assert_eq!(alert.evidence["control_only_sessions"], 0);
+    assert_eq!(alert.evidence["inbound_only_payload_sessions"], 8);
+    assert_eq!(summary.stats.beacon_inbound_only_payload_sessions, 8);
+    assert_eq!(summary.stats.beacon_control_only_sessions, 0);
+}
+
+#[test]
+fn late_old_start_does_not_evict_a_newer_session_under_pressure() {
+    let rules = beacon_rules("");
+    let mut options = rules.options();
+    options.limits.max_starts_per_track = 8;
+    let mut analyzer = StreamingAnalyzer::new(options).unwrap();
+    for index in 0..8 {
+        let port = 40_000 + index;
+        let at = 10_000 + u64::from(index) * 10_000;
+        push(
+            &mut analyzer,
+            packet("10.0.0.5", "198.51.100.9", port, 41191, at, 2, 60),
+        );
+        push(&mut analyzer, data_packet(port, 41191, at + 1, 53));
+    }
+    push(
+        &mut analyzer,
+        packet("10.0.0.5", "198.51.100.9", 45_000, 41191, 0, 2, 60),
+    );
+    push(&mut analyzer, data_packet(45_000, 41191, 1, 8000));
+    let summary = analyzer.finish().unwrap();
+    let alert = &summary.report.findings[0].alert;
+    assert_eq!(alert.evidence["window_start_ms"], 10_000);
+    assert_eq!(alert.evidence["qualifying_sessions"], 8);
+    assert_eq!(alert.evidence["mean_payload_bytes_to_server"], 53.0);
+    assert_eq!(summary.stats.beacon_sessions_dropped, 1);
+}
+
+#[test]
+fn syn_payload_and_wrapping_sequence_numbers_have_matching_syn_ack_context() {
+    let rules = beacon_rules("");
+    let mut options = rules.options();
+    options.limits.tick_ms = 1_000_000;
+    let mut analyzer = StreamingAnalyzer::new(options).unwrap();
+    for index in 0..8 {
+        let port = 40_000 + index;
+        let at = u64::from(index) * 10_000;
+        let mut syn = packet("10.0.0.5", "198.51.100.9", port, 41191, at, 2, 68);
+        syn.payload = vec![0xa5; 8];
+        syn.tcp_sequence = Some(u32::MAX - 3);
+        push(&mut analyzer, syn.clone());
+        syn.timestamp_ms += 1;
+        push(&mut analyzer, syn); // Fast-open SYN retransmission is the same attempt.
+        let mut response = packet("198.51.100.9", "10.0.0.5", 41191, port, at + 2, 0x12, 60);
+        response.tcp_ack = Some(if index % 2 == 0 { 5 } else { u32::MAX - 2 });
+        push(&mut analyzer, response);
+    }
+    let summary = analyzer.finish().unwrap();
+    let alert = &summary.report.findings[0].alert;
+    assert_eq!(alert.evidence["qualifying_sessions"], 8);
+    assert_eq!(alert.evidence["tcp_syn_ack_sessions"], 8);
+    assert_eq!(summary.stats.beacon_syn_retransmissions_ignored, 8);
+    assert_eq!(alert.evidence["mean_payload_bytes_to_server"], 16.0);
 }
 
 #[test]

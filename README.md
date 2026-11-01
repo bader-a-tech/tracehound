@@ -9,13 +9,13 @@ packets, explains the evidence, and exports a case others can review.
 
 Open your own PCAP or PCAPNG, investigate a host, follow a finding to an original
 frame, and open that traffic in Wireshark. The native desktop application and CLI
-share a Rust analysis engine. They detect periodic connections, DNS tunnels, scans,
+share a Rust analysis engine. They detect periodic application sessions, DNS tunnels, scans,
 large outbound transfers, and unusual TLS fingerprints, with measurements and
 MITRE ATT&CK mappings attached to findings.
 
 Investigations use a disk-backed index rather than loading the entire capture
 into the GUI. Compare equal capture windows, search host timelines, inspect DNS,
-TLS and cleartext HTTP facts, and export standalone HTML, JSON, or selected original
+TLS, cleartext HTTP and peer-protocol facts, and export standalone HTML, JSON, or selected original
 packets. Live analysis uses the same Rust engine with an installed `dumpcap`
 capture helper. Optional Windows socket ownership associates fresh local traffic
 with a process when a matching native snapshot is available.

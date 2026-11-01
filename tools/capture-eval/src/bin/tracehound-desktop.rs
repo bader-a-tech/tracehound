@@ -19,6 +19,8 @@ use tracehound_eval::streaming::{
 };
 use tracehound_eval::suite::{SuiteJob, SuiteReport};
 use tracehound_eval::{EvaluationReport, Finding, Severity};
+#[path = "desktop/beacon.rs"]
+mod beacon_ui;
 #[path = "desktop/investigation.rs"]
 mod investigation_ui;
 #[path = "desktop/smoke.rs"]
@@ -233,7 +235,7 @@ enum Work {
     Directory(u64, PathBuf, Vec<DirectoryEntry>),
     Message(String),
     Feed(PathBuf, String),
-    Context(u64, [Vec<usize>; 3]),
+    Context(u64, [Vec<usize>; 4]),
     Filtered(u64, Vec<usize>),
     CaptureSaved(PathBuf),
 }
@@ -271,7 +273,7 @@ struct Desktop {
     context_search: String,
     context_key: Option<(usize, String)>,
     context_generation: Arc<AtomicU64>,
-    context_rows: [Vec<usize>; 3],
+    context_rows: [Vec<usize>; 4],
     context_loading: bool,
     export: String,
     raw: String,
@@ -1211,6 +1213,9 @@ impl Desktop {
             ui.colored_label(severity_color(ui, Severity::High), error);
         }
         ui.small(format!("Recent view: {} findings, {} devices and {} flows; up to {} entries per collection. {} earlier alert records are outside this view. Completed reports retain the bounded full analysis.",snapshot.findings.len(),snapshot.devices.len(),snapshot.flows.len(),snapshot.snapshot_entry_limit,snapshot.earlier_alert_records));
+        if let Ok(stats) = serde_json::to_value(&snapshot.stats) {
+            beacon_ui::show_analysis_context(ui, &stats);
+        }
         ui.collapsing("Live findings", |ui| {
             egui::ScrollArea::vertical()
                 .id_salt("rust-live-findings")
@@ -1239,6 +1244,7 @@ impl Desktop {
                 .and_then(|index| snapshot.findings.get(index))
             {
                 ui.strong("Selected live finding");
+                beacon_ui::show(ui, alert);
                 json_details(ui, &alert.evidence);
             }
         });
@@ -1563,7 +1569,7 @@ impl Desktop {
             ui.selectable_value(
                 &mut self.result_page,
                 ResultPage::Protocols,
-                "HTTP / TLS / DNS context",
+                "Payload and protocol context",
             );
             if evaluation(Some(&document), self.case).is_some() {
                 ui.selectable_value(
@@ -1632,6 +1638,14 @@ impl Desktop {
             values.len(),
             collected_floor
         ));
+        let context = enrichment(document, self.case);
+        let stats = context
+            .get("analysis")
+            .and_then(|analysis| analysis.get("stats"))
+            .or_else(|| context.get("stats"));
+        if let Some(stats) = stats {
+            beacon_ui::show_analysis_context(ui, stats);
+        }
         ui.horizontal(|ui| {
             let search = ui.add(
                 egui::TextEdit::singleline(&mut self.search)
@@ -1700,7 +1714,7 @@ impl Desktop {
     fn protocol_results(&mut self, ui: &mut egui::Ui, document: &ReportDocument) {
         let value = enrichment(document, self.case);
         if value.is_null() {
-            ui.label("This report has no protocol enrichment. Analyse the original capture with the current backend to collect HTTP, TLS, and DNS context.");
+            ui.label("This report has no protocol enrichment. Analyse the original capture with the current backend to collect payload and protocol observations.");
             return;
         }
         ui.horizontal(|ui| {
@@ -1720,7 +1734,7 @@ impl Desktop {
             let document = self.result.clone().unwrap();
             self.work(false, move || {
                 let enrichment = enrichment(&document, key.0);
-                let rows = ["http", "tls", "dns"].map(|name| {
+                let rows = ["http", "tls", "dns", "peer_protocols"].map(|name| {
                     enrichment
                         .get(name)
                         .and_then(Value::as_array)
@@ -1753,6 +1767,7 @@ impl Desktop {
             ("http", "HTTP requests and JA4H"),
             ("tls", "TLS client/server pairs and JA4 / JA4S"),
             ("dns", "DNS queries"),
+            ("peer_protocols", "Peer-protocol observations"),
         ]
         .into_iter()
         .enumerate()
@@ -1763,6 +1778,9 @@ impl Desktop {
                 .map(Vec::as_slice)
                 .unwrap_or_default();
             ui.collapsing(format!("{title} ({})", values.len()), |ui| {
+                if key == "peer_protocols" {
+                    ui.small("A BitTorrent peer observation records a complete 68-byte prefix in one TCP direction, independent of port. It does not establish a complete peer exchange or classify all traffic to that endpoint.");
+                }
                 if !self.context_loading {
                     indexed_json_rows(ui, key, values, &self.context_rows[position]);
                 }
@@ -2108,13 +2126,14 @@ fn finding_details(ui: &mut egui::Ui, finding: &Finding) {
     if let Some(description) = &alert.description {
         ui.label(description);
     }
-    if let Some(score) = alert.score {
+    if let Some(score) = alert.score.filter(|_| alert.rule_id != "TH-0001") {
         ui.label(format!("Detector score: {score:.2}"));
     }
     if let Some(time) = &alert.time {
         ui.label(format!("Latest observation: {time}"));
     }
     ui.separator();
+    beacon_ui::show(ui, alert);
     json_details(ui, &alert.evidence);
     if !alert.extra.is_empty() {
         ui.collapsing("Additional metadata", |ui| {
@@ -2288,7 +2307,8 @@ mod tests {
                 {"occurrences": 1, "alert": {"rule_id": "TH-0002", "severity": "low", "src": "10.0.0.6", "title": "DNS observation", "evidence": {"domain": "example.test"}}}
             ],
             "enrichment": {"input_packets": 12, "output_packets": 12, "reassembled_datagrams": 0, "discarded_fragment_sets": 0,
-                "http": [{"method": "GET", "host": "example.test", "ja4h": "fingerprint"}], "tls": [], "dns": [], "warnings": []}
+                "http": [{"method": "GET", "host": "example.test", "ja4h": "fingerprint"}], "tls": [], "dns": [],
+                "peer_protocols": [{"src":"10.0.0.5","dst":"192.0.2.5","src_port":50000,"dst_port":50001,"protocol":"bittorrent_peer","handshake_bytes":68,"timestamp_ms":1_700_000_000_000_u64,"packets":[]}], "warnings": []}
         })).unwrap())
     }
 
