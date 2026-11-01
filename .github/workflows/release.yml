@@ -216,7 +216,9 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Archive creation failed' }
           }
           $digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          Get-ChildItem -LiteralPath dist/release-assets -File | Where-Object Extension -ne '.sha256' | Sort-Object Name | ForEach-Object {
+          Get-ChildItem -LiteralPath dist/release-assets -File | Where-Object {
+            $_.Name -match '\.(zip|tar\.gz|msi|dmg|deb)$' -or $_.Name -like '*-signing.json'
+          } | Sort-Object Name | ForEach-Object {
             "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)"
           } | Set-Content -Encoding utf8NoBOM "dist/release-assets/$name.sha256"
           $unpacked = Join-Path $env:RUNNER_TEMP 'Tracehound unpacked release'

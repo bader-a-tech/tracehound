@@ -103,7 +103,7 @@ try {
   $product = Join-Path $PSScriptRoot 'Product.wxs'
   $packageVersion = $Version.Split('-')[0]
   Invoke-Checked $candle @('-nologo', '-arch', 'x64', "-dStageDir=$stage", "-dPackageVersion=$packageVersion", "-dLicenseFile=$rtf", '-out', ($work + [IO.Path]::DirectorySeparatorChar), $product, $harvest)
-  Invoke-Checked $light @('-nologo', '-ext', 'WixUIExtension', '-out', $package, (Join-Path $work 'Product.wixobj'), (Join-Path $work 'Files.wixobj'))
+  Invoke-Checked $light @('-nologo', '-ext', 'WixUIExtension', '-pdbout', (Join-Path $work 'Product.wixpdb'), '-out', $package, (Join-Path $work 'Product.wixobj'), (Join-Path $work 'Files.wixobj'))
   if ($signed) {
     Invoke-Checked $signTool @('sign', '/sha1', $thumbprint, '/s', 'My', '/fd', 'SHA256', '/tr', $timestamp, '/td', 'SHA256', $package)
     Invoke-Checked $signTool @('verify', '/pa', $package)
