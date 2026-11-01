@@ -39,21 +39,37 @@ go install github.com/baldoseri/tracehound/cmd/tracehound@latest
 Then:
 
 ```bash
-tracehound gen-demo demo.pcap && tracehound replay demo.pcap
+tracehound replay /path/to/your-capture.pcapng -listen 127.0.0.1:8080
 ```
+
+Open `http://127.0.0.1:8080` to inspect the findings. PCAP and PCAPNG files are
+accepted; no labels or demo data are required. On Linux, use `tracehound sniff
+-i eth0` to analyse a live interface.
+
+For a Rust analysis report or a labelled capture evaluation, build the optional
+`tracehound-eval` tool. It can analyse your captures without labels, or compare
+findings against expected behaviours when ground truth is available. See
+[capture analysis and evaluation](docs/capture-evaluation.md) for build steps,
+commands, JSON reports, and evaluation-suite configuration.
 
 ## Quick start
 
-From a clone, if you have `make`:
+From a clone, build the sensor and analyse your capture:
 
 ```bash
 git clone https://github.com/baldoseri/tracehound && cd tracehound
+go build -o bin/tracehound ./cmd/tracehound
+./bin/tracehound replay /path/to/your-capture.pcap -listen 127.0.0.1:8080
+```
+
+For an optional generated example, if you have `make`:
+
+```bash
 make demo
 ```
 
-Either route builds the binary, generates a synthetic capture containing real attacker
-behaviour, and analyses it. You do not need a network to sniff or a malware sample to
-download.
+This generates a synthetic capture containing labelled attacker behaviour and
+analyses it, so you can explore the tool before collecting your own traffic.
 
 For the live dashboard, which replays 33 minutes of capture in about 17 seconds:
 
@@ -614,7 +630,7 @@ Backend development comes first, with the GUI growing alongside usable backend
 capabilities. New implementation, tests, and helper tooling use Go, Rust, or C++;
 prefer Go for straightforward work. No Python tooling is required.
 
-- Evaluate detector quality on representative benign and labelled attack traffic
+- Grow the evaluation corpus with representative benign and labelled attack traffic
 - Build a friendly GUI around the session backend: guided demo and capture-file
   analysis, clear progress and errors, searchable findings, and export
 - Independent JA4S conformance checks
