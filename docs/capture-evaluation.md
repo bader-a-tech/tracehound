@@ -243,6 +243,133 @@ Rejected eligible records leave its counters and findings unchanged. Labelled
 evaluation requires the accumulator's reporting floor to match the case's floor.
 The slice-based APIs and JSON report schema remain compatible.
 
+## Saved reports, history, and comparisons
+
+Use `--output PATH` to export an analysis, evaluation, suite, or corpus report. An existing
+path is never replaced. `--save-history` additionally stores a validated report in
+private local history; `--history-dir DIRECTORY` selects a different location.
+The default uses `LOCALAPPDATA`, then `XDG_STATE_HOME`, with a home-directory state
+folder fallback. On Unix, history directories are restricted to the owner and
+saved files use owner-only permissions. Windows files inherit the chosen local
+directory's access controls.
+
+```sh
+tracehound-eval analyze capture.pcap --sensor ./bin/tracehound --save-history --output first.json
+tracehound-eval history
+tracehound-eval open first.json
+tracehound-eval compare first.json second.json
+```
+
+`open` validates a report without executing the sensor or reopening its capture.
+Imports reject unsupported versions, inconsistent counters, and evaluation
+summaries that do not match their labels and findings. Comparison reports added,
+removed, changed, and unchanged finding groups. Suite comparisons preserve case
+identity, so the same rule and endpoints in two different cases remain separate.
+Stored reports include evidence, addresses, and capture paths; apply the same
+privacy care as to the original investigation. History contains reports rather
+than copies of capture files.
+
+Labelled suites now use `suite::SuiteJob`. Its snapshot includes the current
+case, total and completed cases, alert records, and unique findings. A detection
+mismatch completes normally with `passed: false`; cancellation and execution
+failures return no completed suite report. The CLI and GUI share that lifecycle.
+
+## Rust capture preparation and protocol evidence
+
+The Rust offline path prepares real PCAP/PCAPNG traffic before passing it to the
+sensor. IPv4 and IPv6 fragment reassembly is bounded by memory, age, and the number
+of active fragment sets. Overlaps, incomplete sets, expired sets, and exhausted
+budgets are discarded and counted. Report `enrichment` records input/output
+packet counts, fragment statistics, protocol observations, and warnings. Mixed
+link types within one PCAPNG are rejected rather than decoded under one assumed
+link type.
+
+Bounded TCP buffering handles segmented ClientHello/ServerHello records and the
+first cleartext HTTP/1.x request per flow. TLS observations include client/server
+fingerprints and the server name where available; HTTP observations include the
+method, host, ordered-header/cookie fingerprint, and header count. Encrypted HTTP,
+HTTP/2, and HTTP/3 headers are not decoded. The TLS server algorithm is checked
+against the independently published RFC 8448 handshake bytes, and HTTP component
+hashes have independent reference checks. These tests establish the covered
+wire formats, rather than universal protocol conformance. Both the Rust and Go
+server implementations match the normal TLS 1.3, no-ALPN handshake in RFC 8448
+section 3. Rust follows the published JA4 field rules for unusual ALPN values;
+the legacy Go path differs for some such encodings, so these implementations are
+not claimed interchangeable across every ALPN case.
+
+Offline DNS scoring uses the full Public Suffix List embedded by the locked
+`psl` dependency, including private suffixes. It scores captured UDP DNS queries
+from the configured home networks and makes no online DNS lookups. The normal
+YAML rule policy still controls `TH-0002` thresholds, exceptions, severity, and
+enablement. The direct Go replay and native live sensor paths retain their
+earlier fragment handling and smaller suffix table; they do not silently inherit
+the Rust offline preparation.
+
+## Source-attributed TLS-pair feeds
+
+Known client/server fingerprint pairs are opt-in. `--pair-feed PATH` loads a
+local, versioned feed whose entries identify both fingerprints, an association,
+source URL, classification, and confidence. A match emits `TH-0008` with that
+provenance. Shared TLS implementations can produce the same pair, so a match
+calls for investigation of the surrounding activity.
+
+```sh
+tracehound-eval feed-update new-pair-feed.json
+tracehound-eval analyze capture.pcap --sensor ./bin/tracehound --pair-feed new-pair-feed.json --json
+```
+
+`feed-update` explicitly fetches the publisher's public mapping over HTTPS,
+records its SHA-256 digest and terms, and writes a new feed without overwriting
+an existing one. Its importer selects source-attributed entries for named
+malware/C2 associations and does not classify ordinary browsers as malicious.
+Publisher data is not bundled in the application, and no feed is downloaded
+during ordinary capture analysis. Review the source terms and entries before
+using an imported feed for a different purpose.
+
+## Live capture and bounded recording
+
+On Linux, the native live session uses the Go sensor and a loopback-only read API
+for current statistics, device inventory, flows, and a bounded recent-findings
+view. Listing interfaces needs no capture privilege; starting packet capture
+requires the operating system's packet-capture permission, such as `CAP_NET_RAW`.
+The backend distinguishes starting, running, stopping, stopped, and failed states.
+
+Windows and macOS use an existing `dumpcap` installation for
+**record-then-analyse**. The backend discovers common Wireshark locations or
+accepts an explicit helper path, lists the helper's capture interfaces, and
+records with a size/time limit and optional capture filter. The defaults are
+64 MiB and one hour. Stopping finishes the recording and starts offline analysis;
+cancelling stops the operation without publishing a completed analysis. A
+completed recording can be saved explicitly to a new capture path.
+
+The helper and capture driver are separate system dependencies. On Windows,
+Wireshark commonly uses Npcap. Tracehound does not install either automatically.
+Recording status does not imply real-time detection: findings appear after the
+recording ends and offline analysis succeeds. Existing offline captures remain
+usable without these dependencies.
+
+## External validation and release bundles
+
+```sh
+tracehound-eval corpus dist/corpus --sensor ./bin/tracehound --json --output corpus-report.json
+```
+
+The corpus command fetches or verifies pinned independent captures and evaluates
+their explicit labels. `--manifest PATH` selects a custom reviewed manifest.
+Each source retains its provenance, digest, terms, and home-network assumptions
+in the JSON report. Corpus reports can be saved in history, reopened, and compared;
+the GUI retains their source provenance alongside the evaluation. Ctrl-C cancels
+between files and during buffered reads; a blocked HTTPS request is bounded by a
+30-second timeout. Completed verified downloads remain cached, while partial
+downloads created by the cancelled operation are removed. The current three-case result and its coverage limits are
+documented in [validation-corpus.md](validation-corpus.md). Capture bytes remain
+outside source control and release archives.
+
+The [release process](release.md) builds portable sensor/CLI/GUI bundles natively
+on Linux, macOS, and Windows, includes dependency notices and checksums, and
+checks the extracted artifacts against independent wire-level PCAP labels. It
+assembles a draft for review before publication.
+
 ## Development checks
 
 ```sh

@@ -1,4 +1,4 @@
-//! Capture analysis and labelled evaluation shared by the CLI and future GUI.
+//! Capture analysis and labelled evaluation shared by the CLI and native GUI.
 //!
 //! Expectations describe behaviours over a whole capture, rather than individual
 //! alert emissions. Repeated findings are grouped by rule, source, and destination.
@@ -13,7 +13,14 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+pub mod capture;
+pub mod corpus;
+pub mod dns;
+pub mod feed;
+pub mod live;
 pub mod runtime;
+pub mod store;
+pub mod suite;
 
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -192,17 +199,17 @@ impl CaptureCase {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Finding {
     /// The last eligible emission retains the latest measurements and severity.
     pub alert: Alert,
     pub occurrences: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AnalysisReport {
     pub schema_version: u32,
-    pub mode: &'static str,
+    pub mode: String,
     pub min_severity: Severity,
     pub total_alerts: usize,
     pub evaluated_alerts: usize,
@@ -210,7 +217,7 @@ pub struct AnalysisReport {
     pub findings: Vec<Finding>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EvaluationSummary {
     pub expected_total: usize,
     pub matched_expectations: usize,
@@ -225,10 +232,10 @@ pub struct EvaluationSummary {
     pub recall: Option<f64>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EvaluationReport {
     pub schema_version: u32,
-    pub mode: &'static str,
+    pub mode: String,
     pub name: String,
     pub capture: PathBuf,
     pub min_severity: Severity,
@@ -243,6 +250,8 @@ pub struct EvaluationReport {
     /// A subset of unexpected_findings whose source is explicitly benign.
     pub benign_findings: Vec<Finding>,
     pub summary: EvaluationSummary,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub enrichment: Value,
 }
 
 /// Incrementally collect findings without retaining every raw alert record.
@@ -312,7 +321,7 @@ impl AlertAccumulator {
     pub fn finish(self) -> AnalysisReport {
         AnalysisReport {
             schema_version: SCHEMA_VERSION,
-            mode: "analysis",
+            mode: "analysis".into(),
             min_severity: self.min_severity,
             total_alerts: self.total_alerts,
             evaluated_alerts: self.evaluated_alerts,
@@ -429,7 +438,7 @@ fn evaluate_analysis(case: &CaptureCase, analysis: AnalysisReport) -> Evaluation
     };
     EvaluationReport {
         schema_version: SCHEMA_VERSION,
-        mode: "evaluation",
+        mode: "evaluation".into(),
         name: case.name.clone(),
         capture: case.capture.clone(),
         min_severity: case.min_severity,
@@ -443,6 +452,7 @@ fn evaluate_analysis(case: &CaptureCase, analysis: AnalysisReport) -> Evaluation
         unexpected_findings,
         benign_findings,
         summary,
+        enrichment: Value::Null,
     }
 }
 

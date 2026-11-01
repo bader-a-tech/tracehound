@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "captures": [
+    {
+      "id": "ctu-normal-dns",
+      "filename": "ctu-normal-dns.pcap",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-4-only-DNS/2015-03-24_capture1-only-dns.pcap",
+      "sha256": "7fbefbe1a18867bc683f59890cbc0124e5f6166e5aa13035fcf1ccf2f06f7ae4",
+      "bytes": 772961,
+      "source_url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Normal-4-only-DNS/README.md",
+      "license": "Publisher-provided research capture; no capture bytes redistributed by this project. See source terms.",
+      "description": "Publisher-labelled normal home-network DNS traffic: 5966 packets over 1.9 hours; host 10.0.0.34. Non-DNS payload was removed by the publisher for privacy.",
+      "classification": "publisher-labelled normal traffic",
+      "expected": [],
+      "benign_hosts": ["10.0.0.34"],
+      "min_severity": "low"
+    },
+    {
+      "id": "stratosphere-periodic-c2",
+      "filename": "stratosphere-periodic-c2.pcap",
+      "url": "https://raw.githubusercontent.com/stratosphereips/StratosphereLinuxIPS/b5061a961b8348353070e168e8ea3c9101961f4b/dataset/test-cc/test-cc-capture-1.pcap",
+      "sha256": "2276e5ac0303296b71d3363c6e844cd94adcac6b256d2b2d4b1c7aa3ccaed035",
+      "bytes": 2072846,
+      "source_url": "https://stratospherelinuxips.readthedocs.io/en/develop/datasets.html#test-cc-capture-1-pcap",
+      "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+      "description": "Independently captured controlled timing case. Upstream documents curl connections every 2 seconds; this is not an infection or representative malware corpus.",
+      "classification": "controlled periodic network capture",
+      "home_nets": "147.32.0.0/16",
+      "expected": [{"rule_id": "TH-0001", "src": "147.32.80.37", "dst": "141.193.213.21"}],
+      "benign_hosts": [],
+      "min_severity": "low"
+    },
+    {
+      "id": "stratosphere-malware-sweep",
+      "filename": "stratosphere-malware-observation.pcap",
+      "url": "https://raw.githubusercontent.com/stratosphereips/StratosphereLinuxIPS/b5061a961b8348353070e168e8ea3c9101961f4b/dataset/test7-malicious.pcap",
+      "sha256": "cd864709778a7449955671315d1ccc3c6694bb120732c6f60fa9ba01e5c962cb",
+      "bytes": 339844,
+      "source_url": "https://github.com/stratosphereips/StratosphereLinuxIPS/tree/b5061a961b8348353070e168e8ea3c9101961f4b/dataset",
+      "license": "Upstream repository GPL-2.0; external capture downloaded locally, not redistributed in project releases.",
+      "description": "Upstream malicious-traffic capture. Independent Ethernet/IPv4/TCP inspection found 192.168.2.16 sending 255 SYN-without-ACK packets to 54 destinations on TCP/23 over 133.019 seconds, supporting a horizontal-sweep expectation. This label covers the observed sweep, not every possible behaviour in the file.",
+      "classification": "upstream malicious traffic with independently verified sweep label",
+      "expected": [{"rule_id": "TH-0004", "src": "192.168.2.16"}],
+      "benign_hosts": [],
+      "min_severity": "low"
+    }
+  ]
+}

@@ -49,7 +49,7 @@ coverage.html
 /web/.next/
 
 # Local editor and tooling overrides
-.claude/settings.local.json
+**/settings.local.json
 
 # Editors and OS
 .vscode/

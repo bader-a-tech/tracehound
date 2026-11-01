@@ -1,131 +1,212 @@
 name: release
 
-# Cutting a release was a manual sequence: cross-compile five targets, assemble
-# archives, checksum them, upload. Done by hand it is a set of steps that will
-# eventually be performed slightly differently, and the difference will be in a
-# published artifact that people verify against a checksum file.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build, for re-running a failed release"
+        description: "Existing version tag to build"
         required: true
+        type: string
 
 permissions:
-  contents: write # required to create the release; the rest of CI stays read-only
+  contents: read
 
 env:
   GO_VERSION: "1.26"
 
 jobs:
-  release:
-    name: build and publish
-    runs-on: ubuntu-latest
+  bundle:
+    name: bundle ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: amd64
+            extension: ""
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            extension: ""
+          - runner: macos-15-intel
+            platform: darwin
+            arch: amd64
+            extension: ""
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+            extension: ""
+          - runner: windows-latest
+            platform: windows
+            arch: amd64
+            extension: ".exe"
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
-          fetch-depth: 0 # tags, so the binary can describe itself
+          fetch-depth: 0
+
+      - name: resolve version
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') {
+            throw 'Release tag must be vMAJOR.MINOR.PATCH with an optional prerelease suffix'
+          }
+          git rev-parse --verify "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Release tag does not exist' }
+          $tagCommit = git rev-parse "$env:RELEASE_TAG^{commit}"
+          $headCommit = git rev-parse HEAD
+          if ($tagCommit -ne $headCommit) { throw 'Checkout does not match the selected release tag' }
+          "tag=$env:RELEASE_TAG" >> $env:GITHUB_OUTPUT
 
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      # The tag is the version. Nothing else decides it, so an archive named
-      # v0.4.1 cannot contain a binary that reports something else.
-      - name: resolve version
-        id: v
-        run: echo "version=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@stable
 
-      # Publishing a broken build is worse than publishing late, and the tag may
-      # point at a commit that never went through a pull request.
-      - name: test before shipping
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/capture-eval
+
+      - name: verify application version
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $metadata = cargo metadata --no-deps --format-version 1 --manifest-path tools/capture-eval/Cargo.toml | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo metadata failed' }
+          $application = $metadata.packages | Where-Object name -eq tracehound-eval
+          if ($application.version -ne $env:RELEASE_TAG.Substring(1)) {
+            throw 'Rust application version must match the release tag without its v prefix'
+          }
+
+      - name: install Linux desktop build dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libgl1-mesa-dev libxcursor-dev libxrandr-dev libxinerama-dev libudev-dev pkg-config
+
+      - name: test sensor
         run: |
           go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Go vet failed' }
           go test ./... -count=1
+          if ($LASTEXITCODE -ne 0) { throw 'Go tests failed' }
 
-      - name: build archives
+      - name: build native executables
         env:
-          VERSION: ${{ steps.v.outputs.version }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
           CGO_ENABLED: "0"
+          EXE_SUFFIX: ${{ matrix.extension }}
         run: |
-          set -euo pipefail
-          mkdir -p dist
-
-          build() {
-            local goos="$1" goarch="$2" ext="${3:-}"
-            local stage; stage=$(mktemp -d)
-
-            echo "  $goos/$goarch"
-            GOOS="$goos" GOARCH="$goarch" go build \
-              -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
-              -o "$stage/tracehound${ext}" ./cmd/tracehound
-
-            cp README.md LICENSE "$stage/"
-
-            local name="tracehound-${VERSION}-${goos}-${goarch}"
-            if [ "$goos" = "windows" ]; then
-              ( cd "$stage" && zip -q "${name}.zip" tracehound.exe README.md LICENSE )
-              mv "$stage/${name}.zip" dist/
-            else
-              tar czf "dist/${name}.tar.gz" -C "$stage" tracehound README.md LICENSE
-            fi
-            rm -rf "$stage"
+          New-Item -ItemType Directory -Path dist/release-stage -Force | Out-Null
+          if ($IsWindows) { $env:RUSTFLAGS = '-C target-feature=+crt-static' }
+          go build -trimpath -ldflags "-s -w -X main.version=$env:RELEASE_TAG" -o "dist/release-stage/tracehound$env:EXE_SUFFIX" ./cmd/tracehound
+          if ($LASTEXITCODE -ne 0) { throw 'Sensor build failed' }
+          cargo build --locked --release --manifest-path tools/capture-eval/Cargo.toml --features gui --bin tracehound-eval --bin tracehound-desktop --bin release-smoke --bin release-notices
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop/CLI build failed' }
+          foreach ($name in @('tracehound-eval', 'tracehound-desktop')) {
+            Copy-Item -LiteralPath "tools/capture-eval/target/release/$name$env:EXE_SUFFIX" -Destination dist/release-stage
           }
+          Copy-Item -LiteralPath README.md, LICENSE, SECURITY.md -Destination dist/release-stage
+          Copy-Item -LiteralPath docs -Destination dist/release-stage -Recurse
+          & "tools/capture-eval/target/release/release-notices$env:EXE_SUFFIX" (Get-Location).Path dist/release-stage/licenses
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency notice collection failed' }
 
-          build linux   amd64
-          build linux   arm64
-          build darwin  amd64
-          build darwin  arm64
-          build windows amd64 .exe
-
-          cd dist
-          sha256sum ./* | sed 's#\./##' > SHA256SUMS.txt
-          ls -1sh
-          cat SHA256SUMS.txt
-
-      # The archive is what people download, so the check runs against the
-      # unpacked archive rather than the build directory.
-      - name: verify the shipped binary
+      - name: test Rust backend and desktop
         env:
-          VERSION: ${{ steps.v.outputs.version }}
+          EXE_SUFFIX: ${{ matrix.extension }}
         run: |
-          set -euo pipefail
-          cd dist
-          sha256sum -c SHA256SUMS.txt
+          $env:TRACEHOUND_TEST_SENSOR = (Resolve-Path "dist/release-stage/tracehound$env:EXE_SUFFIX").Path
+          cargo test --locked --manifest-path tools/capture-eval/Cargo.toml --all-targets --features gui
+          if ($LASTEXITCODE -ne 0) { throw 'Rust tests failed' }
 
-          tmp=$(mktemp -d)
-          tar xzf "tracehound-${VERSION}-linux-amd64.tar.gz" -C "$tmp"
-          cd "$tmp"
-
-          got=$(./tracehound version)
-          echo "reports: $got"
-          [ "$got" = "tracehound ${VERSION}" ] || {
-            echo "::error::archive reports '$got', expected 'tracehound ${VERSION}'"
-            exit 1
+      - name: archive and verify extracted bundle
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+          EXE_SUFFIX: ${{ matrix.extension }}
+        run: |
+          $name = "tracehound-$env:RELEASE_TAG-$env:PLATFORM-$env:ARCH"
+          New-Item -ItemType Directory -Path dist/release-assets | Out-Null
+          if ($IsWindows) {
+            $archive = "dist/release-assets/$name.zip"
+            $zipFloor = [DateTime]::new(1980, 1, 1, 0, 0, 0, [DateTimeKind]::Utc)
+            Get-ChildItem -LiteralPath dist/release-stage -Recurse -File | ForEach-Object {
+              if ($_.LastWriteTimeUtc -lt $zipFloor) { $_.LastWriteTimeUtc = $zipFloor }
+            }
+            Compress-Archive -Path dist/release-stage/* -DestinationPath $archive
+          } else {
+            $archive = "dist/release-assets/$name.tar.gz"
+            tar -czf $archive -C dist/release-stage .
+            if ($LASTEXITCODE -ne 0) { throw 'Archive creation failed' }
+          }
+          $digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$digest  $([IO.Path]::GetFileName($archive))" | Set-Content -Encoding utf8NoBOM "dist/release-assets/$name.sha256"
+          $unpacked = Join-Path $env:RUNNER_TEMP 'Tracehound unpacked release'
+          New-Item -ItemType Directory -Path $unpacked | Out-Null
+          if ($IsWindows) {
+            Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
+          } else {
+            tar -xzf $archive -C $unpacked
+            if ($LASTEXITCODE -ne 0) { throw 'Archive extraction failed' }
+          }
+          $work = Join-Path $env:RUNNER_TEMP 'Tracehound release verification'
+          & "tools/capture-eval/target/release/release-smoke$env:EXE_SUFFIX" $unpacked $env:RELEASE_TAG $work
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted bundle verification failed' }
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $digest) {
+            throw 'Archive changed after checksum creation'
           }
 
-          # End to end on the shipped artifact: generate the capture, analyse
-          # it, and require every planted behaviour to come back out. A release
-          # that cannot detect anything is the failure worth catching here.
-          ./tracehound gen-demo demo.pcap
-          ./tracehound replay demo.pcap -min-severity medium > findings.txt
-          for rule in TH-0001 TH-0002 TH-0003 TH-0004 TH-0005 TH-0007; do
-            grep -q "$rule" findings.txt || {
-              echo "::error::$rule did not fire in the release build"
-              exit 1
-            }
-          done
-          echo "all planted behaviours detected by the shipped binary"
-
-      - name: publish
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ steps.v.outputs.version }}
-          name: tracehound ${{ steps.v.outputs.version }}
-          draft: true # notes are written by hand; publishing is the last human step
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  draft:
+    name: assemble draft release
+    needs: bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: assemble checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          cat ./*.sha256 | tr -d '\r' | sort -k2 > SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: tracehound ${{ inputs.tag || github.ref_name }}
+          draft: true
           generate_release_notes: true
-          files: dist/*
+          files: |
+            release-assets/*.zip
+            release-assets/*.tar.gz
+            release-assets/SHA256SUMS.txt

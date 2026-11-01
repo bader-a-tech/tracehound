@@ -10,8 +10,16 @@ exfiltration, and shows the numbers behind every call it makes.
 
 tracehound reads packets from a capture file or a live interface, assembles them into
 flows, fingerprints TLS clients with JA4 over both TCP and QUIC, fingerprints the
-servers they reach with JA4S, and reports attacker behaviour mapped to MITRE ATT&CK. It builds to a single static binary with no libpcap
-and no cgo, and the web dashboard is compiled into the executable.
+servers they reach with JA4S, and reports attacker behaviour mapped to MITRE ATT&CK.
+The Go sensor builds to a static binary with no libpcap or cgo and includes its web
+dashboard. A Rust backend and native desktop application add capture preparation,
+labelled evaluation, saved reports, comparison, and capture controls.
+
+Open your own PCAP or PCAPNG in the desktop application, or pass it to the CLI.
+The [capture guide](docs/capture-evaluation.md) covers both workflows. The
+[release guide](docs/release.md) explains portable desktop bundles and checksums;
+[external validation](docs/validation-corpus.md) records independently published
+captures, exact hashes, observed detections, and the limits of the current corpus.
 
 ![tracehound analysing a capture](docs/demo.gif)
 
@@ -23,8 +31,10 @@ redraws whatever it printed, so it stays in sync with the code.*
 ## Install
 
 Download a binary for your platform from the
-[latest release](https://github.com/baldoseri/tracehound/releases/latest). They are
-statically linked, need no libpcap, and each release ships a `SHA256SUMS.txt`:
+[latest release](https://github.com/baldoseri/tracehound/releases/latest). Each
+release ships a `SHA256SUMS.txt`. The Go sensor is statically linked and needs no
+libpcap; desktop bundles also contain the Rust CLI, native GUI, documentation, and
+dependency notices. Keep their three executables in one extracted folder:
 
 ```bash
 sha256sum -c SHA256SUMS.txt
@@ -62,8 +72,12 @@ Drop your capture into the window or paste its path, then start analysis. The GU
 uses the same Rust job backend as the evaluation CLI, with cancellation, status,
 live counts of unique findings, searchable findings, evidence, and JSON export.
 The backend groups repeated alerts as they arrive to reduce memory use. The GUI
-locates a nearby sensor binary
-or lets you select its executable path in Analysis settings.
+locates a nearby sensor binary or lets you select its executable path in Analysis
+settings. Reports can be reopened, saved to private local history, and compared.
+Labelled suites use a cancellable background job with per-capture progress.
+Linux can show live sensor findings and device/flow views. Windows and macOS can
+record a bounded capture through an existing Wireshark `dumpcap` installation and
+then analyse it; that workflow is explicitly record-then-analyse.
 
 ## Quick start
 
@@ -609,33 +623,40 @@ status is read-only; starting and stopping through HTTP is not implemented.
 
 ## Limitations
 
-Live capture only works on Linux, because it uses pure-Go AF_PACKET. Every platform can
-replay capture files, which is a better development workflow anyway since it is
-reproducible.
+Native real-time detection uses the Go sensor's Linux AF_PACKET support. Other
+platforms can analyse capture files or record first through an installed capture
+helper. Windows recording uses the existing Npcap driver; Tracehound does not
+install packet drivers automatically.
 
-TCP stream reassembly stops after the ClientHello. That is enough to fingerprint a
-client but not to analyse the payload of a protocol.
+The Rust offline path uses bounded TCP buffering for ClientHello/ServerHello and
+the first cleartext HTTP/1.x request per flow. HTTP/2, HTTP/3, and encrypted HTTP
+headers are not decoded. The direct Go replay/sniff path retains its earlier
+ClientHello-oriented reassembly.
 
 QUIC support covers client Initials for version 1 and version 2. Draft versions use their
 own salts again and are rejected rather than decrypted with the wrong keys, and
 everything after the handshake is protected by keys an observer never sees.
 
-IP fragments are not reassembled. IPv6 extension header chains are walked, so a first
-fragment decodes normally, but a non-initial fragment carries no transport header and is
-counted as undecodable.
+Rust offline analysis reassembles IPv4 and IPv6 fragments within explicit memory,
+age, and fragment-set limits. Incomplete, overlapping, expired, and over-budget
+sets are discarded and counted in report enrichment. The direct Go replay/sniff
+path does not perform that preparation and retains its fragment limitations.
 
-The public suffix table is partial. Around sixty common two-label suffixes are built in,
-so `a.example.co.uk` groups under `example.co.uk` correctly. The full Public Suffix List
-would be exhaustive, at the cost of a megabyte of embedded data and a standing update
-obligation, for a detector whose scoring is dominated by entropy.
+Rust offline DNS analysis uses the full Public Suffix List embedded by the locked
+Rust dependency, including its private suffix section. Updates are deliberate
+dependency updates. The direct Go sensor still uses its smaller built-in suffix
+table, so results can differ for suffixes covered only by the full list.
 
 Alerts repeat as evidence accumulates. Identical evidence is dropped and an escalation in
 severity is reported immediately, but a finding whose numbers keep climbing will restate
 itself once per cooldown.
 
-Detector thresholds are tuned against synthetic traffic. Treat them as a starting point
-rather than a calibration for your network, and edit the rule pack once you know what
-your own traffic looks like.
+The regression set now includes independently published normal DNS, controlled
+periodic traffic, and an observed malicious sweep. It is too small to establish
+production precision or broad malware recall. Thresholds remain a starting point
+for your network; review the evidence and tune the rule pack using labelled local
+traffic. Optional TLS-pair feed matches preserve their source and confidence and
+identify associations, rather than proving malware attribution.
 
 ## Roadmap
 
@@ -643,17 +664,26 @@ Backend development focuses on Rust or C++, with the GUI growing alongside
 usable backend capabilities. The Rust job and evaluation library runs the
 existing Go packet sensor. No Python tooling is required.
 
-- Grow the evaluation corpus with representative benign and labelled attack traffic
-- Extend the native GUI with labelled evaluation suites, live capture setup,
-  and device views
-- Independent JA4S conformance checks
-- JA4H, the HTTP variant
-- A detector for known client and server fingerprint pairs, once there is a feed
-  to check them against
+The current backend includes labelled suite jobs, history and report comparison,
+bounded IP reassembly, full-list DNS grouping, independent TLS server fingerprint
+checks, cleartext HTTP fingerprints, and opt-in source-attributed TLS-pair feeds.
+The native release workflow bundles the CLI, GUI, and sensor on each platform,
+verifies extracted archives, and assembles a draft release.
+
+Further work includes a broader independently labelled corpus, additional
+protocol and evasion coverage, native GUI interaction checks across operating
+systems, and publisher-signed installers. The
+[external validation report](docs/validation-corpus.md) and
+[release process](docs/release.md) track the evidence and remaining distribution
+limits.
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+Release bundles retain dependency copyright and license notices in `licenses/`.
+Their catalog identifies dependency versions and upstream sources; third-party
+terms remain their own.
 
 The synthetic capture uses only [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737) and
 RFC 1918 documentation addresses, so it cannot be mistaken for, or replayed against, real
