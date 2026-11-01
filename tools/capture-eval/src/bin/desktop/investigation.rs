@@ -548,6 +548,9 @@ impl InvestigationUi {
                 ui.label(utc(first));
             }
         });
+        if let Some(stats) = overview.analysis.get("stats") {
+            super::beacon_ui::show_analysis_context(ui, stats);
+        }
         ui.collapsing("Original capture and reproducible analysis", |ui| {
             ui.label(format!("Source: {}", overview.source.display()));
             ui.label(format!("SHA-256: {}", overview.capture.sha256));
@@ -734,7 +737,17 @@ impl InvestigationUi {
             .cloned()
         {
             ui.collapsing("Selected event details", |ui| {
-                super::json_details(ui, &event.details);
+                if event.kind == "finding" {
+                    if let Ok(finding) =
+                        serde_json::from_value::<tracehound_eval::Finding>(event.details.clone())
+                    {
+                        super::finding_details(ui, &finding);
+                    } else {
+                        super::json_details(ui, &event.details);
+                    }
+                } else {
+                    super::json_details(ui, &event.details);
+                }
                 ui.label(format!(
                     "{} exact original packet references",
                     event.packets.len()

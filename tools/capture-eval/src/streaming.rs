@@ -5,7 +5,7 @@
 
 use crate::capture::{
     CaptureDiagnostics, DecodeEvents, DecodedPacket, DnsObservation, HttpObservation, PacketRef,
-    StreamDecoder, TlsClientObservation, TlsObservation,
+    PeerProtocolObservation, StreamDecoder, TlsClientObservation, TlsObservation,
 };
 use crate::dns::{DnsAnalyzer, DnsPolicy};
 use crate::feed::PairFeed;
@@ -14,11 +14,15 @@ use crate::{Alert, AlertAccumulator, AnalysisReport, Severity};
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
+
+#[path = "beacon.rs"]
+mod beacon;
+use beacon::{BeaconBook, BeaconPointer};
 
 const BUILTIN: [&str; 7] = [
     include_str!("../../../internal/rules/builtin/th-0001-beaconing.yaml"),
@@ -121,6 +125,26 @@ pub struct StreamStats {
     pub uncertainty_limited_dns_scores: u64,
     #[serde(default)]
     pub fingerprint_user_samples_omitted: u64,
+    #[serde(default)]
+    pub beacon_retained_groups: usize,
+    #[serde(default)]
+    pub beacon_retained_sessions: usize,
+    #[serde(default)]
+    pub beacon_qualifying_sessions: usize,
+    #[serde(default)]
+    pub beacon_control_only_sessions: usize,
+    #[serde(default)]
+    pub beacon_inbound_only_payload_sessions: usize,
+    #[serde(default)]
+    pub beacon_insufficient_payload_groups: usize,
+    #[serde(default)]
+    pub beacon_insufficient_interval_groups: usize,
+    #[serde(default)]
+    pub beacon_scoring_timestamp_ms: Option<u64>,
+    #[serde(default)]
+    pub beacon_syn_retransmissions_ignored: u64,
+    #[serde(default)]
+    pub beacon_sessions_dropped: u64,
     pub first_timestamp_ms: Option<u64>,
     pub last_timestamp_ms: Option<u64>,
 }
@@ -132,6 +156,7 @@ pub struct StreamBatch {
     pub tls: Vec<TlsObservation>,
     pub tls_clients: Vec<TlsClientObservation>,
     pub dns: Vec<DnsObservation>,
+    pub peer_protocols: Vec<PeerProtocolObservation>,
     pub warnings: Vec<String>,
     pub diagnostics: CaptureDiagnostics,
 }
@@ -552,15 +577,15 @@ pub struct StreamFlow {
     #[serde(skip)]
     syn_sequence: Option<u32>,
     #[serde(skip)]
+    syn_ack_expected: Option<u32>,
+    #[serde(skip)]
     fin_client: bool,
     #[serde(skip)]
     fin_server: bool,
-}
-struct BeaconTrack {
-    starts: VecDeque<u64>,
-    sizes: VecDeque<f64>,
-    packets: Vec<PacketRef>,
-    last: u64,
+    #[serde(skip)]
+    non_syn_payload: bool,
+    #[serde(skip)]
+    beacon: Option<BeaconPointer>,
 }
 struct Probe {
     last: u64,
@@ -594,7 +619,7 @@ pub struct StreamingAnalyzer {
     dns: Option<DnsAnalyzer>,
     feed: Option<PairFeed>,
     flows: BTreeMap<FlowKey, StreamFlow>,
-    beacons: BTreeMap<(IpAddr, IpAddr, u16, u8), BeaconTrack>,
+    beacons: BeaconBook,
     scans: BTreeMap<IpAddr, BTreeMap<(IpAddr, u16), Probe>>,
     scan_vertical_reported: BTreeSet<IpAddr>,
     scan_horizontal_reported: BTreeSet<IpAddr>,
@@ -647,7 +672,7 @@ impl StreamingAnalyzer {
             dns: Some(dns),
             feed,
             flows: BTreeMap::new(),
-            beacons: BTreeMap::new(),
+            beacons: BeaconBook::default(),
             scans: BTreeMap::new(),
             scan_vertical_reported: BTreeSet::new(),
             scan_horizontal_reported: BTreeSet::new(),
@@ -667,6 +692,8 @@ impl StreamingAnalyzer {
         stats.active_flows = self.flows.len();
         stats.devices = self.devices.len();
         stats.findings = self.seen_findings.len();
+        stats.beacon_retained_groups = self.beacons.groups();
+        stats.beacon_retained_sessions = self.beacons.sessions();
         if let Some(dns) = &self.dns {
             stats.dropped_dns_name_events = dns.dropped_name_events;
             stats.uncertainty_limited_dns_scores = dns.uncertainty_limited_scores;
@@ -683,7 +710,7 @@ impl StreamingAnalyzer {
         self.devices.values()
     }
     pub fn analysis_meta(&self) -> Value {
-        json!({"engine":"rust-stream","engine_version":env!("CARGO_PKG_VERSION"),"rule_pack_sha256":self.policy.sha256,"rule_pack_mode":"replacement_present_rules","public_suffix_list":"psl-crate-embedded","tls_client_scope":"completed_client_hello","dns_global_name_budget":crate::dns::MAX_GLOBAL_NAMES,"fingerprint_users_retained":2,"local_live":self.options.local_live,"limits":self.options.limits})
+        json!({"engine":"rust-stream","engine_version":env!("CARGO_PKG_VERSION"),"rule_pack_sha256":self.policy.sha256,"rule_pack_mode":"replacement_present_rules","public_suffix_list":"psl-crate-embedded","tls_client_scope":"completed_client_hello","dns_global_name_budget":crate::dns::MAX_GLOBAL_NAMES,"fingerprint_users_retained":2,"local_live":self.options.local_live,"limits":self.options.limits,"beacon_session_scope":{"qualification":"observed_outbound_application_payload","payload_bytes":"captured_transport_payload_including_retransmissions","protocol_context":"per_session_observed_headers_no_suppression","max_retained_sessions":beacon::MAX_SESSIONS,"max_packet_examples_per_session":beacon::MAX_SESSION_REFS,"snapshot_counters":"last_scoring_tick_except_retained_counts","dropped_sessions":"cumulative_pressure_evictions_or_rejections_excluding_history_expiry","score":"timing_and_size_heuristic_not_malware_probability"}})
     }
     /// Borrowed decoder output avoids duplicating application payload bytes.
     pub fn observe_ref(&mut self, events: &DecodeEvents) -> Result<StreamBatch, String> {
@@ -715,6 +742,7 @@ impl StreamingAnalyzer {
             tls: events.tls.clone(),
             tls_clients: events.tls_clients.clone(),
             dns: events.dns.clone(),
+            peer_protocols: events.peer_protocols.clone(),
             warnings: events.warnings.clone(),
             diagnostics: events.diagnostics.clone(),
             ..Default::default()
@@ -726,7 +754,8 @@ impl StreamingAnalyzer {
             .or_else(|| batch.dns.first().map(|query| query.timestamp_ms))
             .or_else(|| batch.tls_clients.first().map(|client| client.timestamp_ms))
             .or_else(|| batch.tls.first().map(|tls| tls.timestamp_ms))
-            .or_else(|| batch.http.first().map(|http| http.timestamp_ms));
+            .or_else(|| batch.http.first().map(|http| http.timestamp_ms))
+            .or_else(|| batch.peer_protocols.first().map(|peer| peer.timestamp_ms));
         let now = observed_at.unwrap_or(self.stats.last_timestamp_ms.unwrap_or(0));
         if let Some(now) = observed_at {
             self.stats.first_timestamp_ms.get_or_insert(now);
@@ -741,6 +770,7 @@ impl StreamingAnalyzer {
         if let Some(packet) = &events.packet {
             self.packet(packet, &mut batch)?;
         }
+        self.beacons.annotate_events(events);
         for query in &batch.dns {
             if self.internal(query.src) {
                 let alerts = self.dns.as_mut().unwrap().observe(query);
@@ -929,21 +959,35 @@ impl StreamingAnalyzer {
         let key = FlowKey::packet(packet);
         let bare_syn =
             packet.protocol == 6 && packet.tcp_flags.is_some_and(|flags| flags & 0x12 == 0x02);
+        // Retransmitted opening SYNs remain one attempt. Once data or a FIN has
+        // progressed the flow, a later opening SYN is a new episode even if its
+        // initial sequence number was reused. Older reordered SYNs do not reset it.
+        let new_episode = bare_syn
+            && self.flows.get(&key).is_some_and(|flow| {
+                packet.timestamp_ms >= flow.last_ms
+                    && (flow.syn_sequence != packet.tcp_sequence
+                        || flow.non_syn_payload
+                        || flow.fin_client
+                        || flow.fin_server)
+            });
         let new_connection = if packet.protocol == 6 {
             bare_syn
                 && self
                     .flows
                     .get(&key)
-                    .is_none_or(|flow| flow.syn_sequence != packet.tcp_sequence)
+                    .is_none_or(|flow| flow.syn_sequence.is_none() || new_episode)
         } else {
             !self.flows.contains_key(&key)
         };
         if bare_syn
+            && !new_connection
             && self.flows.get(&key).is_some_and(|flow| {
-                flow.syn_sequence
-                    .is_some_and(|sequence| Some(sequence) != packet.tcp_sequence)
+                flow.beacon.is_some() && flow.syn_sequence == packet.tcp_sequence
             })
         {
+            self.stats.beacon_syn_retransmissions_ignored += 1;
+        }
+        if new_episode {
             if let Some(flow) = self.flows.remove(&key) {
                 self.close_flow(flow, &mut batch.alerts)?;
             }
@@ -973,8 +1017,19 @@ impl StreamingAnalyzer {
                     ja4: None,
                     process: Vec::new(),
                     syn_sequence: if bare_syn { packet.tcp_sequence } else { None },
+                    syn_ack_expected: if bare_syn {
+                        packet.tcp_sequence.map(|sequence| {
+                            sequence
+                                .wrapping_add(1)
+                                .wrapping_add(packet.payload.len() as u32)
+                        })
+                    } else {
+                        None
+                    },
                     fin_client: false,
                     fin_server: false,
+                    non_syn_payload: false,
+                    beacon: None,
                 },
             );
         }
@@ -983,43 +1038,19 @@ impl StreamingAnalyzer {
             && !self.internal(packet.dst)
             && self.policy.enabled("TH-0001")
         {
-            let beacon_key = (packet.src, packet.dst, packet.dst_port, packet.protocol);
-            if self.beacons.contains_key(&beacon_key)
-                || self.beacons.len()
-                    < self.options.limits.max_beacon_tracks.min(self.policy.count(
-                        "beaconing",
-                        "max_tracked",
-                        50_000,
-                    ))
-            {
-                let track = self
-                    .beacons
-                    .entry(beacon_key)
-                    .or_insert_with(|| BeaconTrack {
-                        starts: VecDeque::new(),
-                        sizes: VecDeque::new(),
-                        packets: Vec::new(),
-                        last: packet.timestamp_ms,
-                    });
-                let position = track
-                    .starts
-                    .make_contiguous()
-                    .binary_search(&packet.timestamp_ms)
-                    .unwrap_or_else(|position| position);
-                track.starts.insert(position, packet.timestamp_ms);
-                track.last = track.last.max(packet.timestamp_ms);
-                while track.starts.len() > self.options.limits.max_starts_per_track {
-                    track.starts.pop_front();
-                    self.stats.dropped_tracking_events += 1;
-                }
-                for reference in &packet.packets {
-                    if track.packets.len() < self.options.limits.max_evidence_packets {
-                        track.packets.push(reference.clone());
-                    }
-                }
-            } else {
-                self.stats.dropped_tracking_events += 1;
-            }
+            let (pointer, dropped) = self.beacons.start(
+                packet,
+                key.clone(),
+                self.options.limits.max_beacon_tracks.min(self.policy.count(
+                    "beaconing",
+                    "max_tracked",
+                    50_000,
+                )),
+                self.options.limits.max_starts_per_track,
+            );
+            self.stats.dropped_tracking_events += dropped;
+            self.stats.beacon_sessions_dropped += dropped;
+            self.flows.get_mut(&key).unwrap().beacon = pointer;
         }
         let mut flow = self.flows.remove(&key).unwrap();
         if bare_syn && flow.syn_sequence.is_none() {
@@ -1029,8 +1060,25 @@ impl StreamingAnalyzer {
                 std::mem::swap(&mut flow.packets_out, &mut flow.packets_in);
             }
             flow.syn_sequence = packet.tcp_sequence;
+            flow.syn_ack_expected = packet.tcp_sequence.map(|sequence| {
+                sequence
+                    .wrapping_add(1)
+                    .wrapping_add(packet.payload.len() as u32)
+            });
         }
         flow.last_ms = flow.last_ms.max(packet.timestamp_ms);
+        if !bare_syn && !packet.payload.is_empty() {
+            flow.non_syn_payload = true;
+        }
+        if let Some(pointer) = &flow.beacon {
+            self.beacons.observe(
+                pointer,
+                packet,
+                flow.client,
+                flow.syn_sequence,
+                flow.syn_ack_expected,
+            );
+        }
         if flow.client.ip() == packet.src && flow.client.port() == packet.src_port {
             flow.bytes_out = flow.bytes_out.saturating_add(packet.wire_bytes);
             flow.packets_out += 1;
@@ -1205,19 +1253,6 @@ impl StreamingAnalyzer {
     }
     fn close_flow(&mut self, flow: StreamFlow, out: &mut Vec<Alert>) -> Result<(), String> {
         if self.internal(flow.client.ip()) && !self.internal(flow.server.ip()) {
-            if let Some(track) = self.beacons.get_mut(&(
-                flow.client.ip(),
-                flow.server.ip(),
-                flow.server.port(),
-                flow.protocol,
-            )) {
-                if flow.protocol != 6 || flow.syn_sequence.is_some() {
-                    track.sizes.push_back(flow.bytes_out as f64);
-                }
-                while track.sizes.len() > 512 {
-                    track.sizes.pop_front();
-                }
-            }
             let ratio = flow.bytes_out as f64 / flow.bytes_in.max(1) as f64;
             if self.policy.enabled("TH-0005")
                 && flow.bytes_out
@@ -1250,64 +1285,13 @@ impl StreamingAnalyzer {
             self.close_flow(flow, out)?;
         }
         let cutoff = now.saturating_sub(self.policy.duration("beaconing", "history", 21_600_000));
-        let mut hits = Vec::new();
-        self.beacons.retain(|_, track| {
-            while track.starts.front().is_some_and(|at| *at < cutoff) {
-                track.starts.pop_front();
-            }
-            track
-                .packets
-                .retain(|reference| reference.timestamp_ns / 1_000_000 >= cutoff);
-            track.last >= cutoff
-        });
-        for ((src, dst, port, _), track) in &self.beacons {
-            if track.starts.len() < self.policy.count("beaconing", "min_connections", 8) {
-                continue;
-            }
-            let starts = track.starts.iter().copied().collect::<Vec<_>>();
-            let intervals = starts
-                .windows(2)
-                .filter(|pair| pair[1] > pair[0])
-                .map(|pair| (pair[1] - pair[0]) as f64 / 1000.0)
-                .collect::<Vec<_>>();
-            if intervals.is_empty() {
-                continue;
-            }
-            let mean = average(&intervals);
-            if mean * 1000.0 < self.policy.duration("beaconing", "min_interval", 2000) as f64
-                || mean * 1000.0
-                    > self
-                        .policy
-                        .duration("beaconing", "max_interval", 21_600_000)
-                        as f64
-            {
-                continue;
-            }
-            let cv = coefficient(&intervals);
-            let med = median(&intervals);
-            let mad = if med > 0.0 {
-                median(
-                    &intervals
-                        .iter()
-                        .map(|value| (value - med).abs())
-                        .collect::<Vec<_>>(),
-                ) / med
-            } else {
-                0.0
-            };
-            let periodicity = 1.0 - cv.min(mad).clamp(0.0, 1.0);
-            let sizes = track.sizes.iter().copied().collect::<Vec<_>>();
-            let size_score = if sizes.len() >= 3 {
-                1.0 - coefficient(&sizes).clamp(0.0, 1.0)
-            } else {
-                0.5
-            };
-            let score = 0.75 * periodicity + 0.25 * size_score;
-            if score < self.policy.number("beaconing", "threshold", 0.75) {
-                continue;
-            }
-            hits.push((alert("TH-0001",if score>=0.9&&starts.len()>=20{Severity::High}else{Severity::Medium},*src,Some(*dst),*port,"Periodic outbound beaconing",json!({"connections":starts.len(),"interval_mean_s":round3(mean),"interval_cv":round3(cv),"interval_mad_ratio":round3(mad),"jitter_pct":round3(cv*100.0),"periodicity_score":round3(periodicity),"size_consistency":round3(size_score),"mean_bytes_to_server":round3(average(&sizes))})),track.packets.clone()));
-        }
+        let mut hits = self.beacons.score(
+            &self.policy,
+            &self.options.limits,
+            cutoff,
+            now,
+            &mut self.stats,
+        );
         let cutoff = now.saturating_sub(self.policy.duration("port-scan", "window", 300_000));
         self.scans.retain(|_, track| {
             track.retain(|_, probe| probe.last >= cutoff);

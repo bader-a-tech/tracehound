@@ -210,6 +210,30 @@ Rust follows published JA4 rules for unusual ALPN encodings; the legacy Go path
 has differences for some such values. The Go engine retains its separate QUIC
 Initial fingerprint support; it is not implied for the Rust TCP-only TLS decoder.
 
+Peer protocol context recognizes a complete 68-byte
+[BEP 3 BitTorrent handshake](https://www.bittorrent.org/beps/bep_0003.html) at the
+captured contiguous TCP prefix, independently of its port. It records the
+direction, timestamp, and original packet references without storing the torrent
+info-hash or peer ID. A one-direction header does not establish a response, a
+successful two-way exchange, or the protocol of opaque sessions to the same peer.
+Encrypted peer negotiation and uTP are not decoded.
+
+Rust `TH-0001` timing uses sessions with observed outbound application payload.
+Control-only TCP attempts remain counted separately and can contribute to scan
+detection, but do not qualify as application check-ins. Outbound-only payload is
+eligible: a partial capture can miss replies. Findings therefore report observed
+responses, bidirectional payload, and SYN-ACK counts separately from qualifying
+sessions. None of those counters establishes maliciousness.
+
+Timing, payload-size measurements, and protocol context use the same bounded
+session window. Repeated starts at an identical timestamp do not create measured
+intervals. Analysis metadata records the qualification policy and retention
+limits; statistics expose excluded candidate groups and dropped session records.
+Current-window counters describe the last scoring tick, while cumulative drop and
+retransmission counters describe the run. The displayed score is a heuristic
+pattern measurement, rather than a probability of infection. Older reports lack
+these session facts and display them as unknown in the desktop application.
+
 Rust DNS scoring uses the full Public Suffix List embedded by the locked `psl`
 dependency, including private suffixes, without online DNS lookups. Home-network
 filters and YAML rule settings control eligibility, thresholds, exceptions,

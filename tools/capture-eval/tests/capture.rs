@@ -144,6 +144,154 @@ fn record(hello: &[u8]) -> Vec<u8> {
     out
 }
 
+// BEP 3 field layout, with synthetic reserved bits, info-hash, and peer ID.
+// A full one-way header is protocol evidence, not a confirmed peer exchange.
+fn peer_handshake() -> Vec<u8> {
+    let mut bytes = vec![19];
+    bytes.extend(b"BitTorrent protocol");
+    bytes.extend([0, 0, 0, 0, 0, 0x10, 0, 1]);
+    bytes.extend([0x42; 20]);
+    bytes.extend(b"-TH0001-012345678901");
+    assert_eq!(bytes.len(), 68);
+    bytes
+}
+
+#[test]
+fn complete_peer_header_is_port_independent_segmented_and_packet_backed() {
+    let directory = Directory::new();
+    let handshake = peer_handshake();
+    // The tail arrives first; recognition must wait for contiguous header bytes.
+    // No SYN or response is required to report an observed one-direction header.
+    let input = pcap(
+        &directory,
+        "peer.pcap",
+        &[
+            (1, tcp(false, 1025, 0x18, &handshake[24..])),
+            (2, tcp(false, 1001, 0x18, &handshake[..24])),
+            (3, tcp(false, 1001, 0x18, &handshake)),
+        ],
+    );
+    let report = inspect_capture(&input).unwrap();
+    assert_eq!(report.peer_protocols.len(), 1);
+    let observed = &report.peer_protocols[0];
+    assert_eq!(observed.protocol, "bittorrent_peer");
+    assert_eq!(observed.handshake_bytes, 68);
+    assert_eq!(observed.dst_port, 443);
+    assert_eq!(observed.timestamp_ms, 1000);
+    assert_eq!(
+        observed
+            .packets
+            .iter()
+            .map(|p| p.number)
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
+    let serialized = serde_json::to_value(observed).unwrap();
+    assert!(serialized.get("info_hash").is_none());
+    assert!(serialized.get("peer_id").is_none());
+    assert!(report.http.is_empty() && report.tls.is_empty());
+
+    let mut seen = Vec::new();
+    let drained =
+        tracehound_eval::capture::scan_capture_events(&input, None, &|| false, &mut |_, events| {
+            seen.extend(events.peer_protocols.iter().cloned());
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(seen.len(), 1);
+    assert!(drained.peer_protocols.is_empty());
+    assert_eq!(seen[0].packets, observed.packets);
+
+    // The same original references must survive the case index and inline job.
+    let index = directory.path("peer.db");
+    tracehound_eval::investigation::CaseIndex::build(&input, &index, &|| false, &mut |_| {})
+        .unwrap();
+    let case = tracehound_eval::investigation::CaseIndex::open(&index).unwrap();
+    let timeline = case.timeline(observed.src, 0, 100).unwrap();
+    let event = timeline
+        .events
+        .iter()
+        .find(|e| e.kind == "peer_protocol")
+        .unwrap();
+    assert_eq!(event.evidence_kind, "packet");
+    assert_eq!(event.packets, observed.packets);
+    assert_eq!(event.details["handshake_bytes"], 68);
+    drop(case);
+    use tracehound_eval::runtime::{AnalysisEngine, CaptureJob, JobReport, SensorOptions};
+    let job = CaptureJob::analyze(
+        input,
+        SensorOptions {
+            engine: AnalysisEngine::Rust,
+            ..Default::default()
+        },
+        tracehound_eval::Severity::Low,
+    )
+    .unwrap()
+    .wait()
+    .unwrap();
+    let JobReport::Analysis(analysis) = job.as_ref() else {
+        panic!("expected analysis")
+    };
+    assert_eq!(analysis.enrichment["peer_protocols"][0], serialized);
+}
+
+#[test]
+fn partial_or_misplaced_peer_headers_are_not_protocol_observations() {
+    let directory = Directory::new();
+    let handshake = peer_handshake();
+    for length in 0..68 {
+        let input = pcap(
+            &directory,
+            &format!("short-{length}.pcap"),
+            &[(1, tcp(false, 1, 0x18, &handshake[..length]))],
+        );
+        assert!(
+            inspect_capture(&input).unwrap().peer_protocols.is_empty(),
+            "length {length}"
+        );
+    }
+    let mut bad_length = handshake.clone();
+    bad_length[0] = 18;
+    let mut bad_protocol = handshake.clone();
+    bad_protocol[4] ^= 1;
+    let mut embedded = vec![0];
+    embedded.extend(&handshake);
+    for (name, data) in [
+        ("bad-length", bad_length),
+        ("bad-protocol", bad_protocol),
+        ("embedded", embedded),
+    ] {
+        let input = pcap(
+            &directory,
+            &format!("{name}.pcap"),
+            &[(1, tcp(false, 1, 0x18, &data))],
+        );
+        assert!(inspect_capture(&input).unwrap().peer_protocols.is_empty());
+    }
+}
+
+#[test]
+fn conflicting_peer_prefix_is_rejected_until_an_initiating_syn_resets_it() {
+    let directory = Directory::new();
+    let handshake = peer_handshake();
+    let mut conflict = handshake[..24].to_vec();
+    conflict[8] ^= 1;
+    let frames = vec![
+        (1, tcp(false, 1001, 0x18, &handshake[..24])),
+        (2, tcp(false, 1001, 0x18, &conflict)),
+        (3, tcp(false, 1025, 0x18, &handshake[24..])),
+    ];
+    let input = pcap(&directory, "conflict.pcap", &frames);
+    assert!(inspect_capture(&input).unwrap().peer_protocols.is_empty());
+    let mut reset = frames;
+    reset.push((4, tcp(false, 9000, 2, &[])));
+    reset.push((5, tcp(false, 9001, 0x18, &handshake)));
+    let input = pcap(&directory, "reset.pcap", &reset);
+    let report = inspect_capture(&input).unwrap();
+    assert_eq!(report.peer_protocols.len(), 1);
+    assert_eq!(report.peer_protocols[0].packets[0].number, 5);
+}
+
 #[test]
 fn rfc8448_ja4s_is_independently_derived_and_truncation_is_rejected() {
     let hello = rfc_server();
