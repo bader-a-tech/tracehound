@@ -1,15 +1,16 @@
 use serde::Serialize;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
-use tracehound_eval::{
-    analyze, evaluate, Alert, AnalysisReport, EvaluationReport, Severity, Suite,
+use std::time::Duration;
+use tracehound_eval::runtime::{
+    validate_capture, CaptureJob, CaptureReport, JobReport, SensorOptions,
 };
+use tracehound_eval::{EvaluationReport, Severity, Suite};
 
 const HELP: &str = "tracehound-eval — analyse captures and check labelled detection expectations
 
@@ -145,13 +146,6 @@ fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, St
     Ok(opts)
 }
 
-#[derive(Serialize)]
-struct AnalysisOutput {
-    capture: PathBuf,
-    #[serde(flatten)]
-    report: AnalysisReport,
-}
-
 #[derive(Default, Serialize)]
 struct SuiteSummary {
     captures: usize,
@@ -187,11 +181,26 @@ fn main() {
         println!("tracehound-eval {}", env!("CARGO_PKG_VERSION"));
         return;
     }
-    match parse_options(args).and_then(run) {
-        Ok(code) => std::process::exit(code),
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let signal = Arc::clone(&interrupted);
+    let outcome = parse_options(args).and_then(|opts| {
+        ctrlc::set_handler(move || signal.store(true, Ordering::Release))
+            .map_err(|e| format!("install interrupt handler: {e}"))?;
+        run(opts, &interrupted)
+    });
+    match outcome {
+        Ok(code) => std::process::exit(if interrupted.load(Ordering::Acquire) {
+            130
+        } else {
+            code
+        }),
         Err(error) => {
             eprintln!("tracehound-eval: {}", safe(&error));
-            std::process::exit(2);
+            std::process::exit(if interrupted.load(Ordering::Acquire) {
+                130
+            } else {
+                2
+            });
         }
     }
 }
@@ -229,7 +238,7 @@ fn wants_help(args: &[OsString]) -> bool {
     false
 }
 
-fn run(opts: Options) -> Result<i32, String> {
+fn run(opts: Options, interrupted: &AtomicBool) -> Result<i32, String> {
     if let Some(output) = &opts.output {
         if output.exists() {
             return Err(format!(
@@ -240,13 +249,15 @@ fn run(opts: Options) -> Result<i32, String> {
     }
     match opts.mode {
         Mode::Analyze => {
-            let alerts = run_sensor(&opts, &opts.input)?;
-            let output = AnalysisOutput {
-                capture: opts.input.clone(),
-                report: analyze(&alerts, opts.min_severity)?,
+            let job =
+                CaptureJob::analyze(opts.input.clone(), sensor_options(&opts), opts.min_severity)
+                    .map_err(|e| e.to_string())?;
+            let result = wait_for_job(&job, interrupted)?;
+            let JobReport::Analysis(output) = result.as_ref() else {
+                return Err("analysis returned an unexpected report type".into());
             };
-            let text = analysis_text(&output);
-            emit_report(&opts, &output, &text)?;
+            let text = analysis_text(output);
+            emit_report(&opts, output, &text)?;
             Ok(0)
         }
         Mode::Evaluate => {
@@ -264,13 +275,21 @@ fn run(opts: Options) -> Result<i32, String> {
                 .map(|case| base.join(&case.capture))
                 .collect();
             for path in &paths {
-                validate_capture(path)?;
+                validate_capture(path).map_err(|e| e.to_string())?;
             }
             let mut reports = Vec::with_capacity(suite.captures.len());
             for (case, path) in suite.captures.iter().zip(paths.iter()) {
-                let alerts =
-                    run_sensor(&opts, path).map_err(|e| format!("case {}: {e}", case.name))?;
-                reports.push(evaluate(case, &alerts)?);
+                if interrupted.load(Ordering::Acquire) {
+                    return Err("analysis cancelled".into());
+                }
+                let job = CaptureJob::evaluate(path.clone(), sensor_options(&opts), case.clone())
+                    .map_err(|e| format!("case {}: {e}", case.name))?;
+                let result = wait_for_job(&job, interrupted)
+                    .map_err(|e| format!("case {}: {e}", case.name))?;
+                let JobReport::Evaluation(report) = result.as_ref() else {
+                    return Err("evaluation returned an unexpected report type".into());
+                };
+                reports.push(report.as_ref().clone());
             }
             let mut summary = SuiteSummary {
                 captures: reports.len(),
@@ -308,160 +327,27 @@ fn ratio(n: usize, d: usize) -> Option<f64> {
     (d != 0).then(|| n as f64 / d as f64)
 }
 
-fn validate_capture(path: &Path) -> Result<(), String> {
-    if !path.is_file() {
-        return Err(format!("capture {} is not a readable file", path.display()));
-    }
-    Ok(())
-}
-
-// Always ask the sensor for every severity. Filtering belongs to the evaluator
-// so that labels and the report use exactly the same reporting floor.
-fn run_sensor(opts: &Options, path: &Path) -> Result<Vec<Alert>, String> {
-    validate_capture(path)?;
-    let capture_path =
-        fs::canonicalize(path).map_err(|e| format!("open capture {}: {e}", path.display()))?;
-    let mut command = Command::new(&opts.sensor);
-    command.args([
-        OsStr::new("replay"),
-        capture_path.as_os_str(),
-        OsStr::new("-json"),
-        OsStr::new("-quiet"),
-        OsStr::new("-min-severity"),
-        OsStr::new("info"),
-    ]);
-    if let Some(rules) = &opts.rules {
-        command.arg("-rules").arg(rules);
-    }
-    if let Some(nets) = &opts.home_nets {
-        command.arg("-home-nets").arg(nets);
-    }
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .spawn()
-        .map_err(|e| {
-            format!(
-                "start sensor {}: {e}; use --sensor PATH to select the Tracehound executable",
-                Path::new(&opts.sensor).display()
-            )
-        })?;
-    let stdout = child.stdout.take().ok_or("sensor stdout unavailable")?;
-    let stderr = child.stderr.take().ok_or("sensor stderr unavailable")?;
-    let max_alerts = opts.max_alerts;
-    let (tx, rx) = mpsc::channel();
-    let reader = thread::spawn(move || {
-        let _ = tx.send(read_alerts(stdout, max_alerts));
-    });
-    let errors = thread::spawn(move || bounded_stderr(stderr));
-    let start = Instant::now();
-    let mut alerts = None;
-    let status = loop {
-        if alerts.is_none() {
-            match rx.try_recv() {
-                Ok(Ok(parsed)) => alerts = Some(parsed),
-                Ok(Err(error)) => {
-                    stop_child(&mut child);
-                    let _ = reader.join();
-                    let _ = errors.join();
-                    return Err(error);
-                }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    stop_child(&mut child);
-                    let _ = reader.join();
-                    let _ = errors.join();
-                    return Err("sensor output reader failed".into());
-                }
-                Err(mpsc::TryRecvError::Empty) => {}
-            }
+fn wait_for_job(job: &CaptureJob, interrupted: &AtomicBool) -> Result<Arc<JobReport>, String> {
+    loop {
+        if interrupted.load(Ordering::Acquire) {
+            job.cancel();
         }
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {}
-            Err(error) => {
-                stop_child(&mut child);
-                let _ = reader.join();
-                let _ = errors.join();
-                return Err(format!("wait for sensor: {error}"));
-            }
-        }
-        if !opts.timeout.is_zero() && start.elapsed() >= opts.timeout {
-            stop_child(&mut child);
-            let _ = reader.join();
-            let _ = errors.join();
-            return Err(format!(
-                "sensor exceeded {} seconds; adjust --timeout for larger captures",
-                opts.timeout.as_secs()
-            ));
+        if let Some(result) = job.try_result() {
+            return result.map_err(|e| e.to_string());
         }
         thread::sleep(Duration::from_millis(10));
-    };
-    let stderr = errors.join().map_err(|_| "sensor stderr reader failed")?;
-    reader.join().map_err(|_| "sensor stdout reader failed")?;
-    if !status.success() {
-        return Err(format!(
-            "sensor exited with {status}: {}",
-            String::from_utf8_lossy(&stderr).trim()
-        ));
-    }
-    match alerts {
-        Some(alerts) => Ok(alerts),
-        None => rx.recv().map_err(|_| "sensor output reader failed")?,
     }
 }
 
-fn stop_child(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-fn bounded_stderr(mut stream: impl Read) -> Vec<u8> {
-    let mut output = Vec::new();
-    let mut buffer = [0; 8192];
-    while let Ok(n) = stream.read(&mut buffer) {
-        if n == 0 {
-            break;
-        }
-        let keep = n.min(65536usize.saturating_sub(output.len()));
-        output.extend_from_slice(&buffer[..keep]);
+fn sensor_options(opts: &Options) -> SensorOptions {
+    SensorOptions {
+        executable: opts.sensor.clone(),
+        rules: opts.rules.clone(),
+        home_nets: opts.home_nets.clone(),
+        timeout: opts.timeout,
+        max_alerts: opts.max_alerts,
     }
-    output
 }
-
-fn read_alerts(stream: impl Read, max_alerts: usize) -> Result<Vec<Alert>, String> {
-    let mut reader = BufReader::new(stream);
-    let mut alerts = Vec::new();
-    let mut line = Vec::new();
-    let mut line_number = 0;
-    loop {
-        line.clear();
-        let count = reader
-            .by_ref()
-            .take(1_048_577)
-            .read_until(b'\n', &mut line)
-            .map_err(|e| format!("read sensor output: {e}"))?;
-        if count == 0 {
-            break;
-        }
-        line_number += 1;
-        if line.len() > 1_048_576 {
-            return Err(format!("sensor JSON line {line_number} exceeds 1 MiB"));
-        }
-        if line.iter().all(u8::is_ascii_whitespace) {
-            continue;
-        }
-        if alerts.len() >= max_alerts {
-            return Err(format!("sensor exceeded {max_alerts} alert records; adjust --max-alerts or narrow the capture"));
-        }
-        alerts.push(
-            serde_json::from_slice(&line)
-                .map_err(|e| format!("invalid sensor JSON at line {line_number}: {e}"))?,
-        );
-    }
-    Ok(alerts)
-}
-
 fn emit_report(opts: &Options, report: &impl Serialize, text: &str) -> Result<(), String> {
     let json =
         serde_json::to_string_pretty(report).map_err(|e| format!("serialize report: {e}"))?;
@@ -515,7 +401,7 @@ fn finding_text(f: &tracehound_eval::Finding) -> String {
     output
 }
 
-fn analysis_text(output: &AnalysisOutput) -> String {
+fn analysis_text(output: &CaptureReport) -> String {
     let report = &output.report;
     let mut text = format!(
         "Capture: {}\n{} unique findings at {} or above; {} alert records read.\n",
@@ -568,20 +454,6 @@ fn evaluation_text(output: &SuiteOutput) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn reader_reports_malformed_output_and_limits() {
-        assert!(read_alerts("not json\n".as_bytes(), 10)
-            .unwrap_err()
-            .contains("line 1"));
-        let data = b"{\"rule_id\":\"TH-0001\",\"severity\":\"high\",\"src\":\"10.0.0.1\"}\n";
-        assert!(read_alerts(data.as_slice().repeat(2).as_slice(), 1)
-            .unwrap_err()
-            .contains("exceeded 1"));
-        assert!(read_alerts(vec![b'x'; 1_048_577].as_slice(), 1)
-            .unwrap_err()
-            .contains("1 MiB"));
-    }
 
     #[test]
     fn options_reject_invalid_input_and_preserve_paths() {

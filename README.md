@@ -52,6 +52,17 @@ findings against expected behaviours when ground truth is available. See
 [capture analysis and evaluation](docs/capture-evaluation.md) for build steps,
 commands, JSON reports, and evaluation-suite configuration.
 
+For a native desktop interface, build the optional Rust GUI (Rust 1.95 or newer):
+
+```bash
+cargo run --release --locked --manifest-path tools/capture-eval/Cargo.toml --features gui --bin tracehound-desktop
+```
+
+Drop your capture into the window or paste its path, then start analysis. The GUI
+uses the same Rust job backend as the evaluation CLI, with cancellation, status,
+searchable findings, evidence, and JSON export. It locates a nearby sensor binary
+or lets you select its executable path in Analysis settings.
+
 ## Quick start
 
 From a clone, build the sensor and analyse your capture:
@@ -626,13 +637,13 @@ your own traffic looks like.
 
 ## Roadmap
 
-Backend development comes first, with the GUI growing alongside usable backend
-capabilities. New implementation, tests, and helper tooling use Go, Rust, or C++;
-prefer Go for straightforward work. No Python tooling is required.
+Backend development focuses on Rust or C++, with the GUI growing alongside
+usable backend capabilities. The Rust job and evaluation library runs the
+existing Go packet sensor. No Python tooling is required.
 
 - Grow the evaluation corpus with representative benign and labelled attack traffic
-- Build a friendly GUI around the session backend: guided demo and capture-file
-  analysis, clear progress and errors, searchable findings, and export
+- Extend the native GUI with labelled evaluation suites, live capture setup,
+  and device views
 - Independent JA4S conformance checks
 - JA4H, the HTTP variant
 - A detector for known client and server fingerprint pairs, once there is a feed
