@@ -1,491 +1,1431 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use eframe::egui::{self, Color32, RichText};
+use serde_json::Value;
 use std::ffi::OsString;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
-use tracehound_eval::runtime::{CaptureJob, JobReport, JobState, SensorOptions};
-use tracehound_eval::{AnalysisReport, Finding, Severity};
+use tracehound_eval::feed::{self, PairFeed};
+use tracehound_eval::live::{
+    self, CaptureInterface, LiveSession, LiveSnapshot, PortableRecording, RecordingLimits,
+    RecordingState,
+};
+use tracehound_eval::runtime::{CaptureJob, JobReport, SensorOptions};
+use tracehound_eval::store::{self, HistoryEntry, ReportComparison, ReportDocument, ReportStore};
+use tracehound_eval::suite::{SuiteJob, SuiteReport};
+use tracehound_eval::{EvaluationReport, Finding, Severity};
 
 fn main() -> eframe::Result {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1120.0, 780.0])
-            .with_min_inner_size([760.0, 560.0])
-            .with_drag_and_drop(true),
-        ..Default::default()
-    };
     eframe::run_native(
-        "Tracehound — capture analysis",
-        options,
+        "Tracehound",
+        eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_inner_size([1200.0, 850.0])
+                .with_min_inner_size([820.0, 620.0])
+                .with_drag_and_drop(true),
+            ..Default::default()
+        },
         Box::new(|_| Ok(Box::new(Desktop::default()))),
     )
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Page {
+    Capture,
+    Suite,
+    Live,
+    Reports,
+    Settings,
+}
+#[derive(Clone, Copy, PartialEq)]
+enum ResultPage {
+    Findings,
+    Protocols,
+    Evaluation,
+}
+#[derive(Clone, Copy, PartialEq)]
+enum LiveMode {
+    Native,
+    Recording,
+}
+
+enum Task {
+    Capture(CaptureJob),
+    Suite(SuiteJob),
+    Native(LiveSession),
+    Recording(Arc<PortableRecording>),
+}
+enum CompletedReport {
+    Capture(Arc<JobReport>),
+    Suite(Arc<SuiteReport>),
+}
+impl Task {
+    fn active(&self) -> bool {
+        match self {
+            Self::Capture(job) => !job.snapshot().state.is_terminal(),
+            Self::Suite(job) => !job.snapshot().state.is_terminal(),
+            Self::Native(job) => !job.finished(),
+            Self::Recording(job) => !job.finished(),
+        }
+    }
+    fn cancel(&self) {
+        match self {
+            Self::Capture(job) => {
+                job.cancel();
+            }
+            Self::Suite(job) => {
+                job.cancel();
+            }
+            Self::Native(job) => {
+                job.stop();
+            }
+            Self::Recording(job) => {
+                job.cancel();
+            }
+        }
+    }
+    fn cancelled(&self) -> bool {
+        match self {
+            Self::Capture(job) => {
+                job.snapshot().state == tracehound_eval::runtime::JobState::Cancelled
+            }
+            Self::Suite(job) => {
+                job.snapshot().state == tracehound_eval::suite::SuiteState::Cancelled
+            }
+            Self::Recording(job) => job.snapshot().state == RecordingState::Cancelled,
+            Self::Native(_) => false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Input {
+    Capture,
+    Suite,
+    Sensor,
+    Rules,
+    Feed,
+    Helper,
+    Open,
+    Baseline,
+    Export,
+    Raw,
+    History,
+}
+impl Input {
+    fn directory(self) -> bool {
+        matches!(self, Self::Rules | Self::History)
+    }
+    fn title(self) -> &'static str {
+        match self {
+            Self::Capture => "Choose a packet capture",
+            Self::Suite => "Choose an evaluation suite",
+            Self::Sensor => "Choose the Tracehound executable",
+            Self::Rules => "Choose a rule directory",
+            Self::Feed => "Choose a TLS pair feed",
+            Self::Helper => "Choose dumpcap",
+            Self::Open => "Open a report",
+            Self::Baseline => "Choose a comparison baseline",
+            Self::Export => "Choose a report destination",
+            Self::Raw => "Choose a capture destination",
+            Self::History => "Choose a report history directory",
+        }
+    }
+}
+struct DirectoryEntry {
+    path: PathBuf,
+    directory: bool,
+}
+struct Picker {
+    target: Input,
+    directory: String,
+    entries: Vec<DirectoryEntry>,
+    selected: String,
+    loading: bool,
+    generation: u64,
+}
+enum Work {
+    Started(Box<Task>),
+    Document(Arc<ReportDocument>),
+    Ready(Arc<ReportDocument>),
+    History(Vec<HistoryEntry>),
+    Compared(String, String, ReportComparison),
+    Interfaces(LiveMode, Vec<CaptureInterface>, Option<PathBuf>),
+    Directory(u64, PathBuf, Vec<DirectoryEntry>),
+    Message(String),
+    Feed(PathBuf, String),
+    Context(u64, [Vec<usize>; 3]),
+    Filtered(u64, Vec<usize>),
+}
+struct Worker {
+    receiver: mpsc::Receiver<Result<Work, String>>,
+    starting: bool,
+}
+
 struct Desktop {
-    capture_text: String,
-    dropped_capture: Option<PathBuf>,
-    sensor_text: String,
-    rules_text: String,
-    home_nets_text: String,
-    timeout_seconds: u64,
+    page: Page,
+    result_page: ResultPage,
+    capture: String,
+    suite: String,
+    sensor: String,
+    rules: String,
+    home_nets: String,
+    feed: String,
+    timeout: u64,
     max_alerts: usize,
-    reporting_floor: Severity,
-    job: Option<CaptureJob>,
-    result: Option<Arc<JobReport>>,
-    collected_result: bool,
-    state: Option<JobState>,
-    alert_records: usize,
-    unique_findings: usize,
-    elapsed_ms: u64,
+    floor: Severity,
+    task: Option<Task>,
+    collected: bool,
+    workers: Vec<Worker>,
+    status: String,
+    result: Option<Arc<ReportDocument>>,
+    case: usize,
     search: String,
     view_floor: Severity,
     filtered: Vec<usize>,
+    filter_generation: Arc<AtomicU64>,
+    filter_loading: bool,
     selected: Option<usize>,
-    export_text: String,
-    export_receiver: Option<mpsc::Receiver<Result<PathBuf, String>>>,
+    context_search: String,
+    context_key: Option<(usize, String)>,
+    context_generation: Arc<AtomicU64>,
+    context_rows: [Vec<usize>; 3],
+    context_loading: bool,
+    export: String,
+    raw: String,
+    history_root: String,
+    history: Vec<HistoryEntry>,
+    open_path: String,
+    baseline: String,
+    comparison: Option<(String, String, ReportComparison)>,
+    live_mode: LiveMode,
+    helper: String,
+    interfaces: Vec<CaptureInterface>,
+    interface: String,
+    bpf: String,
+    max_mebibytes: u32,
+    max_seconds: u32,
+    promiscuous: bool,
+    live_snapshot: Option<LiveSnapshot>,
+    picker: Option<Picker>,
+    picker_generation: u64,
     error: Option<String>,
     notice: Option<String>,
     closing: bool,
+    cancel_pending_start: bool,
 }
 
 impl Default for Desktop {
     fn default() -> Self {
         Self {
-            capture_text: String::new(),
-            dropped_capture: None,
-            sensor_text: find_sensor().to_string_lossy().into_owned(),
-            rules_text: String::new(),
-            home_nets_text: String::new(),
-            timeout_seconds: 300,
+            page: Page::Capture,
+            result_page: ResultPage::Findings,
+            capture: String::new(),
+            suite: String::new(),
+            sensor: find_sensor().to_string_lossy().into_owned(),
+            rules: String::new(),
+            home_nets: String::new(),
+            feed: String::new(),
+            timeout: 300,
             max_alerts: 1_000_000,
-            reporting_floor: Severity::Low,
-            job: None,
+            floor: Severity::Low,
+            task: None,
+            collected: false,
+            workers: Vec::new(),
+            status: "Ready".into(),
             result: None,
-            collected_result: false,
-            state: None,
-            alert_records: 0,
-            unique_findings: 0,
-            elapsed_ms: 0,
+            case: 0,
             search: String::new(),
             view_floor: Severity::Low,
             filtered: Vec::new(),
+            filter_generation: Arc::new(AtomicU64::new(0)),
+            filter_loading: false,
             selected: None,
-            export_text: String::new(),
-            export_receiver: None,
+            context_search: String::new(),
+            context_key: None,
+            context_generation: Arc::new(AtomicU64::new(0)),
+            context_rows: Default::default(),
+            context_loading: false,
+            export: String::new(),
+            raw: String::new(),
+            history_root: ReportStore::default_location()
+                .root()
+                .to_string_lossy()
+                .into_owned(),
+            history: Vec::new(),
+            open_path: String::new(),
+            baseline: String::new(),
+            comparison: None,
+            live_mode: if cfg!(target_os = "linux") {
+                LiveMode::Native
+            } else {
+                LiveMode::Recording
+            },
+            helper: String::new(),
+            interfaces: Vec::new(),
+            interface: String::new(),
+            bpf: String::new(),
+            max_mebibytes: 64,
+            max_seconds: 3600,
+            promiscuous: false,
+            live_snapshot: None,
+            picker: None,
+            picker_generation: 0,
             error: None,
             notice: None,
             closing: false,
+            cancel_pending_start: false,
         }
     }
 }
 
 impl Desktop {
     fn active(&self) -> bool {
-        self.state.is_some_and(|state| !state.is_terminal())
+        self.workers.iter().any(|worker| worker.starting)
+            || self.task.as_ref().is_some_and(Task::active)
     }
-
-    fn capture_path(&self) -> PathBuf {
-        self.dropped_capture
-            .clone()
-            .unwrap_or_else(|| PathBuf::from(self.capture_text.trim()))
+    fn busy(&self) -> bool {
+        self.active() || !self.workers.is_empty()
     }
-
-    fn start(&mut self) {
-        let capture = self.capture_path();
-        if capture.as_os_str().is_empty() {
-            self.error = Some(
-                "Choose a capture first: drop a PCAP or PCAPNG file here, or paste its path."
-                    .into(),
-            );
-            return;
+    fn options(&self) -> Result<SensorOptions, String> {
+        if self.sensor.trim().is_empty() {
+            return Err("Choose the Tracehound executable in Settings.".into());
         }
-        if self.sensor_text.trim().is_empty() {
-            self.error = Some("Set the Tracehound executable in Analysis settings.".into());
-            return;
-        }
-        let options = SensorOptions {
-            executable: OsString::from(self.sensor_text.trim()),
-            rules: optional_path(&self.rules_text),
-            home_nets: non_empty(&self.home_nets_text).map(OsString::from),
-            timeout: Duration::from_secs(self.timeout_seconds),
+        Ok(SensorOptions {
+            executable: OsString::from(self.sensor.trim()),
+            rules: optional_path(&self.rules),
+            home_nets: non_empty(&self.home_nets).map(OsString::from),
+            pair_feed: optional_path(&self.feed),
+            timeout: Duration::from_secs(self.timeout),
             max_alerts: self.max_alerts,
-        };
-        match CaptureJob::analyze(capture.clone(), options, self.reporting_floor) {
-            Ok(job) => {
-                self.state = Some(job.snapshot().state);
-                self.job = Some(job);
-                self.result = None;
-                self.collected_result = false;
-                self.alert_records = 0;
-                self.unique_findings = 0;
-                self.elapsed_ms = 0;
-                self.filtered.clear();
-                self.selected = None;
-                self.view_floor = self.reporting_floor;
-                self.error = None;
-                self.notice = None;
-                self.export_text = capture
-                    .with_extension("tracehound.json")
-                    .to_string_lossy()
-                    .into_owned();
+        })
+    }
+    fn work(
+        &mut self,
+        starting: bool,
+        run: impl FnOnce() -> Result<Work, String> + Send + 'static,
+    ) {
+        let (sender, receiver) = mpsc::channel();
+        self.workers.push(Worker { receiver, starting });
+        std::thread::spawn(move || {
+            let _ = sender.send(run());
+        });
+    }
+    fn begin(&mut self, kind: Page) {
+        let options = match self.options() {
+            Ok(value) => value,
+            Err(error) => {
+                self.error = Some(error);
+                return;
             }
-            Err(error) => self.error = Some(error.to_string()),
+        };
+        self.error = None;
+        self.notice = None;
+        self.status = "Starting…".into();
+        self.cancel_pending_start = false;
+        let path = PathBuf::from(if kind == Page::Suite {
+            self.suite.trim()
+        } else {
+            self.capture.trim()
+        });
+        if path.as_os_str().is_empty() {
+            self.error = Some("Choose an input file first.".into());
+            return;
+        }
+        let floor = self.floor;
+        self.work(true, move || {
+            let task = if kind == Page::Suite {
+                Task::Suite(SuiteJob::start(path, options)?)
+            } else {
+                Task::Capture(CaptureJob::analyze(path, options, floor).map_err(|e| e.to_string())?)
+            };
+            Ok(Work::Started(Box::new(task)))
+        });
+    }
+    fn begin_live(&mut self) {
+        let options = match self.options() {
+            Ok(value) => value,
+            Err(error) => {
+                self.error = Some(error);
+                return;
+            }
+        };
+        if self.interface.trim().is_empty() {
+            self.error = Some("Discover and choose a capture interface first.".into());
+            return;
+        }
+        if self.live_mode == LiveMode::Recording && self.helper.trim().is_empty() {
+            self.error = Some("Find an installed dumpcap helper first.".into());
+            return;
+        }
+        self.error = None;
+        self.notice = None;
+        self.status = "Starting capture…".into();
+        self.cancel_pending_start = false;
+        let interface = self.interface.clone();
+        let helper = PathBuf::from(self.helper.trim());
+        let mode = self.live_mode;
+        let promiscuous = self.promiscuous;
+        let limits = RecordingLimits {
+            max_mebibytes: self.max_mebibytes,
+            max_seconds: self.max_seconds,
+        };
+        let filter = non_empty(&self.bpf).map(str::to_owned);
+        self.work(true, move || {
+            Ok(Work::Started(Box::new(match mode {
+                LiveMode::Native => {
+                    Task::Native(LiveSession::start(options, interface, promiscuous)?)
+                }
+                LiveMode::Recording => Task::Recording(Arc::new(
+                    PortableRecording::start_filtered(options, helper, interface, limits, filter)?,
+                )),
+            })))
+        });
+    }
+    fn discover(&mut self) {
+        let mode = self.live_mode;
+        let configured = optional_path(&self.helper);
+        self.work(false, move || {
+            if mode == LiveMode::Native {
+                Ok(Work::Interfaces(mode, live::interfaces()?.into_iter().map(|entry| CaptureInterface { id: entry.name.clone(), name: format!("{}{}{}", entry.name, if entry.up { "" } else { " (down)" }, if entry.loopback { " (loopback)" } else { "" }) }).collect(), None))
+            } else {
+                let helper = configured.or_else(live::discover_capture_tool).ok_or("No capture helper found. Choose an existing Wireshark dumpcap executable. Windows also requires an installed Npcap driver; macOS requires capture permissions.")?;
+                let entries = live::capture_interfaces(&helper)?;
+                Ok(Work::Interfaces(mode, entries, Some(helper)))
+            }
+        });
+    }
+    fn document(&mut self, document: Arc<ReportDocument>) {
+        self.result = Some(document);
+        self.case = 0;
+        self.selected = None;
+        self.comparison = None;
+        self.view_floor = current_floor(self.result.as_deref(), self.case);
+        self.result_page = ResultPage::Findings;
+        self.context_key = None;
+        self.rebuild_filter();
+        if self.export.trim().is_empty() {
+            self.export = std::env::current_dir()
+                .unwrap_or_default()
+                .join("tracehound-report.json")
+                .to_string_lossy()
+                .into_owned();
         }
     }
-
     fn poll(&mut self) {
-        if let Some(job) = &self.job {
-            let snapshot = job.snapshot();
-            self.state = Some(snapshot.state);
-            self.alert_records = snapshot.alert_records;
-            self.unique_findings = snapshot.unique_findings;
-            self.elapsed_ms = snapshot.elapsed_ms;
-            if !self.collected_result {
-                if let Some(result) = job.try_result() {
-                    self.collected_result = true;
-                    match result {
-                        Ok(report) => {
-                            if let JobReport::Analysis(capture) = report.as_ref() {
-                                self.unique_findings = capture.report.findings.len();
-                            }
-                            self.result = Some(report);
-                            self.error = None;
-                            self.rebuild_filter();
-                        }
-                        Err(error) if matches!(self.state, Some(JobState::Cancelled)) => {
-                            self.notice = Some(
-                                "Analysis cancelled. No partial result was marked complete.".into(),
-                            );
-                            self.error = None;
-                            let _ = error;
-                        }
-                        Err(error) => self.error = Some(error.to_string()),
-                    }
-                }
-            }
-        }
-        if let Some(receiver) = &self.export_receiver {
-            match receiver.try_recv() {
-                Ok(Ok(path)) => {
-                    self.notice = Some(format!("Report saved to {}", path.display()));
-                    self.export_receiver = None;
-                }
-                Ok(Err(error)) => {
-                    self.error = Some(error);
-                    self.export_receiver = None;
-                }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    self.error =
-                        Some("The report could not be saved because its worker stopped.".into());
-                    self.export_receiver = None;
-                }
+        let mut completed = Vec::new();
+        for (index, worker) in self.workers.iter().enumerate() {
+            match worker.receiver.try_recv() {
+                Ok(result) => completed.push((index, result)),
+                Err(mpsc::TryRecvError::Disconnected) => completed.push((
+                    index,
+                    Err("A background operation stopped before returning a result.".into()),
+                )),
                 Err(mpsc::TryRecvError::Empty) => {}
             }
         }
-    }
-
-    fn analysis(&self) -> Option<&AnalysisReport> {
-        match self.result.as_deref() {
-            Some(JobReport::Analysis(report)) => Some(&report.report),
-            _ => None,
-        }
-    }
-
-    fn rebuild_filter(&mut self) {
-        let query = self.search.to_lowercase();
-        self.filtered = self
-            .analysis()
-            .map(|report| {
-                report
-                    .findings
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, finding)| {
-                        if finding.alert.severity < self.view_floor {
-                            return None;
-                        }
-                        let matches = query.is_empty()
-                            || finding.alert.title.to_lowercase().contains(&query)
-                            || finding.alert.rule_id.to_lowercase().contains(&query)
-                            || finding
-                                .alert
-                                .src
-                                .is_some_and(|addr| addr.to_string().contains(&query))
-                            || finding
-                                .alert
-                                .dst
-                                .is_some_and(|addr| addr.to_string().contains(&query))
-                            || finding
-                                .alert
-                                .description
-                                .as_deref()
-                                .is_some_and(|text| text.to_lowercase().contains(&query))
-                            || finding
-                                .alert
-                                .evidence
-                                .to_string()
-                                .to_lowercase()
-                                .contains(&query);
-                        matches.then_some(index)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        if self
-            .selected
-            .is_some_and(|index| !self.filtered.contains(&index))
-        {
-            self.selected = None;
-        }
-    }
-
-    fn export(&mut self) {
-        let Some(report) = self.result.clone() else {
-            return;
-        };
-        let path = PathBuf::from(self.export_text.trim());
-        if path.as_os_str().is_empty() {
-            self.error = Some("Enter a destination for the JSON report.".into());
-            return;
-        }
-        let (sender, receiver) = mpsc::channel();
-        self.export_receiver = Some(receiver);
-        self.error = None;
-        self.notice = None;
-        std::thread::spawn(move || {
-            let _ = sender.send(write_report(&path, report.as_ref()).map(|()| path));
-        });
-    }
-
-    fn setup(&mut self, ui: &mut egui::Ui) {
-        let active = self.active();
-        ui.group(|ui| {
-            ui.add_enabled_ui(!active && !self.closing, |ui| {
-                ui.strong("Open a capture");
-                ui.label("Drop a PCAP or PCAPNG file into this window, or paste its full path.");
-                let label = ui.label("Capture file");
-                let input = ui.add(egui::TextEdit::singleline(&mut self.capture_text)
-                    .hint_text("Path to your capture.pcapng")
-                    .desired_width(f32::INFINITY))
-                    .labelled_by(label.id);
-                if input.changed() {
-                    self.dropped_capture = None;
+        for (index, result) in completed.into_iter().rev() {
+            self.workers.remove(index);
+            match result {
+                Err(error) => {
+                    if let Some(picker) = &mut self.picker {
+                        picker.loading = false;
+                    }
+                    self.error = Some(error);
+                    if self.task.is_none() {
+                        self.status = "Action needed".into();
+                    }
                 }
-                ui.add_space(6.0);
-                egui::CollapsingHeader::new("Analysis settings").show(ui, |ui| {
-                    let label = ui.label("Tracehound executable");
-                    ui.add(egui::TextEdit::singleline(&mut self.sensor_text).desired_width(f32::INFINITY))
-                        .labelled_by(label.id);
-                    ui.small("The sensor analyses packets locally. Use a full path if Tracehound is not installed on PATH.");
-                    ui.horizontal(|ui| {
-                        ui.label("Report severity");
-                        severity_selector(ui, "reporting-floor", &mut self.reporting_floor);
-                        ui.label("Timeout (seconds; 0 means unlimited)");
-                        ui.add(egui::DragValue::new(&mut self.timeout_seconds).range(0..=86_400));
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Maximum alert records");
-                        ui.add(egui::DragValue::new(&mut self.max_alerts).range(1..=10_000_000));
-                    });
-                    let label = ui.label("Custom rule directory (optional)");
-                    ui.add(egui::TextEdit::singleline(&mut self.rules_text).desired_width(f32::INFINITY))
-                        .labelled_by(label.id);
-                    let label = ui.label("Internal networks (optional, comma-separated CIDRs)");
-                    ui.add(egui::TextEdit::singleline(&mut self.home_nets_text)
-                        .hint_text("10.0.0.0/8,192.168.0.0/16")
-                        .desired_width(f32::INFINITY))
-                        .labelled_by(label.id);
-                });
-            });
-            ui.add_space(8.0);
-            ui.horizontal_wrapped(|ui| {
-                if ui.add_enabled(!active && !self.closing, egui::Button::new("Analyse capture").min_size(egui::vec2(140.0, 32.0))).clicked() {
-                    self.start();
+                Ok(Work::Started(task)) => {
+                    if self.closing || self.cancel_pending_start {
+                        task.cancel();
+                    }
+                    self.task = Some(*task);
+                    self.collected = false;
+                    self.live_snapshot = None;
+                    self.result = None;
+                    self.filtered.clear();
+                    self.selected = None;
+                    self.comparison = None;
                 }
-                if active {
-                    if ui.button("Cancel analysis").clicked() {
-                        if let Some(job) = &self.job {
-                            job.cancel();
+                Ok(Work::Document(document)) => {
+                    self.document(document);
+                    self.notice = Some("Report opened.".into());
+                }
+                Ok(Work::Ready(document)) => {
+                    self.document(document);
+                    self.notice = Some(
+                        "Results are ready. Save to history or export JSON to keep a report."
+                            .into(),
+                    );
+                    self.error = None;
+                }
+                Ok(Work::History(entries)) => self.history = entries,
+                Ok(Work::Compared(before, after, comparison)) => {
+                    self.comparison = Some((before, after, comparison))
+                }
+                Ok(Work::Interfaces(mode, entries, helper)) => {
+                    if mode != self.live_mode {
+                        continue;
+                    }
+                    if !entries.iter().any(|entry| entry.id == self.interface) {
+                        self.interface = entries
+                            .first()
+                            .map(|entry| entry.id.clone())
+                            .unwrap_or_default();
+                    }
+                    self.interfaces = entries;
+                    if let Some(helper) = helper {
+                        self.helper = helper.to_string_lossy().into_owned();
+                    }
+                    if self.interfaces.is_empty() {
+                        self.notice = Some("No capture interfaces were reported. Check the helper and capture permissions.".into());
+                    }
+                }
+                Ok(Work::Directory(generation, path, entries)) => {
+                    if let Some(picker) = &mut self.picker {
+                        if picker.generation == generation {
+                            picker.directory = path.to_string_lossy().into_owned();
+                            picker.entries = entries;
+                            picker.loading = false;
                         }
                     }
-                    ui.spinner();
                 }
-                ui.strong(status_label(self.state));
-                if self.state.is_some() {
-                    let findings = if matches!(self.state, Some(JobState::Completed)) {
-                        format!("{} findings", self.unique_findings)
-                    } else {
-                        format!("{} findings so far (provisional)", self.unique_findings)
-                    };
-                    ui.label(format!("{findings} · {} alert records · {:.1}s", self.alert_records, self.elapsed_ms as f64 / 1000.0));
+                Ok(Work::Message(message)) => self.notice = Some(message),
+                Ok(Work::Feed(path, message)) => {
+                    self.feed = path.to_string_lossy().into_owned();
+                    self.notice = Some(message);
                 }
-            });
-            if active {
-                ui.small("Findings so far are provisional until analysis completes. Repeated alert records are grouped into unique findings at the selected analysis severity; these counts are not packet progress.");
+                Ok(Work::Context(generation, rows)) => {
+                    if generation == self.context_generation.load(Ordering::Relaxed) {
+                        self.context_rows = rows;
+                        self.context_loading = false;
+                    }
+                }
+                Ok(Work::Filtered(generation, indices)) => {
+                    if generation == self.filter_generation.load(Ordering::Relaxed) {
+                        self.filtered = indices;
+                        self.filter_loading = false;
+                        if self
+                            .selected
+                            .is_some_and(|index| !self.filtered.contains(&index))
+                        {
+                            self.selected = None;
+                        }
+                    }
+                }
+            }
+        }
+        let mut result = None;
+        if let Some(task) = &self.task {
+            match task {
+                Task::Capture(job) => {
+                    let progress = job.snapshot();
+                    self.status = format!(
+                        "{:?} · {} grouped findings so far · {} alert records · {:.1}s",
+                        progress.state,
+                        progress.unique_findings,
+                        progress.alert_records,
+                        progress.elapsed_ms as f64 / 1000.0
+                    );
+                    if !self.collected {
+                        if let Some(outcome) = job.try_result() {
+                            self.collected = true;
+                            result = Some(
+                                outcome
+                                    .map(CompletedReport::Capture)
+                                    .map_err(|e| e.to_string()),
+                            );
+                        }
+                    }
+                }
+                Task::Suite(job) => {
+                    let progress = job.snapshot();
+                    self.status = format!(
+                        "{:?} · {}/{} captures · {} · {:.1}s",
+                        progress.state,
+                        progress.completed,
+                        progress.total,
+                        progress.current.as_deref().unwrap_or(""),
+                        progress.elapsed_ms as f64 / 1000.0
+                    );
+                    if !self.collected {
+                        if let Some(outcome) = job.try_result() {
+                            self.collected = true;
+                            result = Some(outcome.map(CompletedReport::Suite));
+                        }
+                    }
+                }
+                Task::Native(job) => {
+                    let progress = job.snapshot();
+                    self.status = format!(
+                        "{:?} · {} alert records · {} recent findings · {:.1}s",
+                        progress.state,
+                        progress.alert_records,
+                        progress.findings.len(),
+                        progress.elapsed_ms as f64 / 1000.0
+                    );
+                    if !self.collected && job.finished() {
+                        self.collected = true;
+                        if let Some(error) = &progress.error {
+                            self.error = Some(error.clone());
+                        }
+                    }
+                    self.live_snapshot = Some(progress);
+                }
+                Task::Recording(job) => {
+                    let progress = job.snapshot();
+                    self.status = format!(
+                        "{:?} · {:.2} MiB captured · {:.1}s{}",
+                        progress.state,
+                        progress.capture_bytes as f64 / 1_048_576.0,
+                        progress.elapsed_ms as f64 / 1000.0,
+                        if progress.state == RecordingState::Analysing {
+                            " · analysing the completed recording"
+                        } else {
+                            ""
+                        }
+                    );
+                    if !self.collected {
+                        if let Some(outcome) = job.try_result() {
+                            self.collected = true;
+                            result = Some(outcome.map(CompletedReport::Capture));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(outcome) = result {
+            match outcome {
+                Ok(completed) => self.work(true, move || {
+                    Ok(Work::Ready(Arc::new(match completed {
+                        CompletedReport::Capture(report) => document_from_job(&report),
+                        CompletedReport::Suite(report) => {
+                            ReportDocument::Suite(Box::new(report.as_ref().clone()))
+                        }
+                    })))
+                }),
+                Err(_) if self.task.as_ref().is_some_and(Task::cancelled) => {
+                    self.notice =
+                        Some("Task cancelled. No partial result was marked complete.".into());
+                    self.error = None;
+                }
+                Err(error) => self.error = Some(error),
+            }
+        }
+    }
+    fn rebuild_filter(&mut self) {
+        let generation = self.filter_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        self.filtered.clear();
+        let Some(document) = self.result.clone() else {
+            self.filter_loading = false;
+            return;
+        };
+        self.filter_loading = true;
+        let query = self.search.to_lowercase();
+        let case = self.case;
+        let floor = self.view_floor;
+        let current = Arc::clone(&self.filter_generation);
+        self.work(false, move || {
+            let mut indices = Vec::new();
+            for (index, finding) in findings(Some(&document), case).iter().enumerate() {
+                if current.load(Ordering::Relaxed) != generation {
+                    break;
+                }
+                if finding.alert.severity >= floor
+                    && (query.is_empty() || finding_search(finding).contains(&query))
+                {
+                    indices.push(index);
+                }
+            }
+            Ok(Work::Filtered(generation, indices))
+        });
+    }
+    fn refresh_history(&mut self) {
+        let root = PathBuf::from(self.history_root.trim());
+        self.work(false, move || {
+            ReportStore::new(root).list().map(Work::History)
+        });
+    }
+    fn browse(&mut self, target: Input) {
+        self.picker_generation += 1;
+        let current = PathBuf::from(self.input(target).trim());
+        let directory = if target.directory() && !current.as_os_str().is_empty() {
+            current.clone()
+        } else {
+            current
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."))
+                .to_path_buf()
+        };
+        self.picker = Some(Picker {
+            target,
+            directory: directory.to_string_lossy().into_owned(),
+            entries: Vec::new(),
+            selected: current
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            loading: true,
+            generation: self.picker_generation,
+        });
+        self.read_directory(directory);
+    }
+    fn read_directory(&mut self, path: PathBuf) {
+        self.picker_generation += 1;
+        let generation = self.picker_generation;
+        if let Some(picker) = &mut self.picker {
+            picker.loading = true;
+            picker.generation = generation;
+        }
+        self.work(false, move || {
+            let path = path.canonicalize().map_err(|e| format!("Open directory {}: {e}", path.display()))?;
+            let mut entries = Vec::new();
+            for entry in std::fs::read_dir(&path).map_err(|e| e.to_string())?.take(5001) {
+                let entry = entry.map_err(|e| e.to_string())?; let kind = entry.file_type().map_err(|e| e.to_string())?;
+                if kind.is_dir() || kind.is_file() { entries.push(DirectoryEntry { path: entry.path(), directory: kind.is_dir() }); }
+            }
+            if entries.len() > 5000 { return Err("This directory has more than 5000 entries. Enter a more specific directory or paste the file path.".into()); }
+            entries.sort_by(|a, b| b.directory.cmp(&a.directory).then_with(|| a.path.cmp(&b.path)));
+            Ok(Work::Directory(generation, path, entries))
+        });
+    }
+    fn input(&mut self, target: Input) -> &mut String {
+        match target {
+            Input::Capture => &mut self.capture,
+            Input::Suite => &mut self.suite,
+            Input::Sensor => &mut self.sensor,
+            Input::Rules => &mut self.rules,
+            Input::Feed => &mut self.feed,
+            Input::Helper => &mut self.helper,
+            Input::Open => &mut self.open_path,
+            Input::Baseline => &mut self.baseline,
+            Input::Export => &mut self.export,
+            Input::Raw => &mut self.raw,
+            Input::History => &mut self.history_root,
+        }
+    }
+    fn path_input(&mut self, ui: &mut egui::Ui, target: Input, label: &str, hint: &str) {
+        let label = ui.label(label);
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(self.input(target))
+                    .hint_text(hint)
+                    .desired_width((ui.available_width() - 80.0).max(150.0)),
+            )
+            .labelled_by(label.id);
+            if ui.button("Browse…").clicked() {
+                self.browse(target);
             }
         });
     }
-
-    fn results(&mut self, ui: &mut egui::Ui) {
-        let Some(report) = self.result.clone() else {
-            ui.add_space(28.0);
-            ui.vertical_centered(|ui| {
-                ui.heading(if self.active() { "Analysis is running" } else { "Your findings will appear here" });
-                ui.label(if self.active() {
-                    "You can cancel at any time. The interface stays available while the capture is processed."
-                } else {
-                    "Open a capture to see the evidence behind each detection."
+    fn picker(&mut self, ctx: &egui::Context) {
+        let Some(mut picker) = self.picker.take() else {
+            return;
+        };
+        let mut open = true;
+        let mut navigate = None;
+        let mut chosen = None;
+        egui::Window::new(picker.target.title())
+            .id(egui::Id::unique("file-browser"))
+            .open(&mut open)
+            .resizable(true)
+            .default_size([700.0, 490.0])
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut picker.directory).desired_width(500.0));
+                    if ui.button("Go").clicked() {
+                        navigate = Some(PathBuf::from(picker.directory.trim()));
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Parent folder").clicked() {
+                        navigate = Path::new(&picker.directory).parent().map(Path::to_path_buf);
+                    }
+                    if picker.loading {
+                        ui.spinner();
+                        ui.label("Reading directory…");
+                    }
+                });
+                egui::ScrollArea::vertical()
+                    .id_salt("browser-entries")
+                    .max_height(310.0)
+                    .show_rows(ui, 23.0, picker.entries.len(), |ui, range| {
+                        for index in range {
+                            let entry = &picker.entries[index];
+                            let name = entry.path.file_name().unwrap_or_default().to_string_lossy();
+                            let response = ui.selectable_label(
+                                picker.selected == name,
+                                format!("{}{}", if entry.directory { "▸ " } else { "  " }, name),
+                            );
+                            if response.clicked() {
+                                picker.selected = name.into_owned();
+                            }
+                            if response.double_clicked() {
+                                if entry.directory {
+                                    navigate = Some(entry.path.clone());
+                                } else if !picker.target.directory() {
+                                    chosen = Some(entry.path.clone());
+                                }
+                            }
+                        }
+                    });
+                ui.separator();
+                if !picker.target.directory() {
+                    ui.horizontal(|ui| {
+                        ui.label("File name");
+                        ui.text_edit_singleline(&mut picker.selected);
+                    });
+                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(
+                            !picker.loading,
+                            egui::Button::new(if picker.target.directory() {
+                                "Use this directory"
+                            } else {
+                                "Use selected path"
+                            }),
+                        )
+                        .clicked()
+                    {
+                        chosen = Some(if picker.target.directory() {
+                            PathBuf::from(picker.directory.trim())
+                        } else {
+                            PathBuf::from(picker.directory.trim()).join(picker.selected.trim())
+                        });
+                    }
+                    ui.small(
+                        "Double-click a folder to open it. Full paths can also be pasted directly.",
+                    );
                 });
             });
-            return;
-        };
-        let JobReport::Analysis(capture) = report.as_ref() else {
-            return;
-        };
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            ui.heading("Findings");
-            ui.label(format!(
-                "{} unique · {} alert records",
-                capture.report.findings.len(),
-                capture.report.total_alerts
-            ));
+        if let Some(path) = chosen {
+            *self.input(picker.target) = path.to_string_lossy().into_owned();
+        } else if open {
+            self.picker = Some(picker);
+            if let Some(path) = navigate {
+                self.read_directory(path);
+            }
+        }
+    }
+}
+
+impl Desktop {
+    fn capture_page(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Analyse a capture");
+        ui.label("Open a real PCAP or PCAPNG capture. Drop a file here or choose it below.");
+        ui.add_enabled_ui(!self.active() && !self.closing, |ui| {
+            self.path_input(ui, Input::Capture, "Capture file", "capture.pcapng");
+            ui.horizontal(|ui| {
+                ui.label("Report severity");
+                severity_selector(ui, "analysis-floor", &mut self.floor, Severity::Info);
+                if ui.button("Analyse capture").clicked() {
+                    self.begin(Page::Capture);
+                }
+            });
         });
-        ui.small("These are sensor findings. Without evaluation labels, this view does not measure accuracy or establish that a capture is safe.");
-        ui.label(format!("Analysed capture: {}", capture.capture.display()));
+        ui.small("Sensor findings describe observed behaviour. Evaluation labels are needed to measure detection accuracy.");
+    }
+    fn suite_page(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Evaluate labelled captures");
+        ui.label("Run a suite manifest against its real capture files and measure matched, missed, and unexpected behaviours.");
+        ui.add_enabled_ui(!self.active() && !self.closing, |ui| {
+            self.path_input(
+                ui,
+                Input::Suite,
+                "Suite JSON manifest",
+                "Path to suite.json",
+            );
+            if ui.button("Evaluate suite").clicked() {
+                self.begin(Page::Suite);
+            }
+        });
+        ui.collapsing("Manifest format", |ui| {
+            ui.label("Capture paths are relative to the manifest. Each case supplies its own minimum severity and expected rule/source pairs. An empty expected list explicitly labels a negative case.");
+            ui.monospace("{\n  \"schema_version\": 1,\n  \"captures\": [{\n    \"name\": \"labelled capture\",\n    \"capture\": \"traffic.pcap\",\n    \"min_severity\": \"low\",\n    \"expected\": [{\"rule_id\": \"TH-0001\", \"src\": \"10.0.0.5\"}],\n    \"benign_hosts\": []\n  }]\n}");
+        });
+    }
+    fn live_page(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Capture traffic");
+        ui.add_enabled_ui(!self.active() && !self.closing, |ui| {
+            let old_mode = self.live_mode;
+            ui.horizontal(|ui| {
+                ui.add_enabled_ui(cfg!(target_os = "linux"), |ui| { ui.selectable_value(&mut self.live_mode, LiveMode::Native, "Linux live analysis"); });
+                ui.selectable_value(&mut self.live_mode, LiveMode::Recording, "Record, then analyse");
+            });
+            if old_mode != self.live_mode { self.interfaces.clear(); self.interface.clear(); }
+            if self.live_mode == LiveMode::Recording {
+                ui.label("Uses an existing dumpcap installation. Findings become available after recording stops and the complete file is analysed.");
+                self.path_input(ui, Input::Helper, "Capture helper (optional until discovery)", "Path to dumpcap; Discover checks existing installations");
+            } else {
+                ui.label("The Linux sensor streams recent findings and polls local inventory. Packet capture requires CAP_NET_RAW or equivalent permissions.");
+                ui.small("Live mode uses the sensor's live detectors. Record, then analyse adds protocol context, fragment reassembly, the full public-suffix DNS detector, and an optional local TLS pair feed after capture stops.");
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Discover interfaces").clicked() { self.discover(); }
+                egui::ComboBox::from_id_salt("capture-interface").width(420.0).selected_text(self.interfaces.iter().find(|entry| entry.id == self.interface).map(|entry| entry.name.as_str()).unwrap_or("Choose an interface")).show_ui(ui, |ui| {
+                    for entry in &self.interfaces { ui.selectable_value(&mut self.interface, entry.id.clone(), &entry.name); }
+                });
+            });
+            if self.live_mode == LiveMode::Recording {
+                let label = ui.label("Capture filter (BPF, optional)");
+                ui.add(egui::TextEdit::singleline(&mut self.bpf).hint_text("host 192.168.1.10 or udp port 53").desired_width(f32::INFINITY)).labelled_by(label.id);
+                ui.horizontal(|ui| { ui.label("Stop at MiB"); ui.add(egui::DragValue::new(&mut self.max_mebibytes).range(1..=4096)); ui.label("or seconds"); ui.add(egui::DragValue::new(&mut self.max_seconds).range(1..=86_400)); });
+                ui.small("Recording uses non-promiscuous mode and stops at either bound. Only traffic permitted by the selected filter is recorded.");
+            } else { ui.checkbox(&mut self.promiscuous, "Promiscuous mode"); }
+            if ui.button(if self.live_mode == LiveMode::Native { "Start live analysis" } else { "Start recording" }).clicked() { self.begin_live(); }
+        });
+        if let Some(Task::Recording(job)) = &self.task {
+            let state = job.snapshot().state;
+            if state == RecordingState::Recording
+                && ui.button("Stop recording and analyse").clicked()
+            {
+                job.stop();
+            }
+            if state == RecordingState::Completed {
+                self.path_input(
+                    ui,
+                    Input::Raw,
+                    "Save the recorded PCAP (optional)",
+                    "Choose a new .pcap file",
+                );
+                if ui
+                    .add_enabled(
+                        !self.closing && !self.raw.trim().is_empty(),
+                        egui::Button::new("Save capture"),
+                    )
+                    .clicked()
+                {
+                    let Some(Task::Recording(job)) = &self.task else {
+                        return;
+                    };
+                    let job = Arc::clone(job);
+                    let path = PathBuf::from(self.raw.trim());
+                    self.work(false, move || {
+                        job.save_capture(&path)?;
+                        Ok(Work::Message(format!(
+                            "Capture saved to {}",
+                            path.display()
+                        )))
+                    });
+                }
+                ui.small("The temporary capture is removed when this session is replaced or the application closes. Saving a JSON report does not save packets.");
+            }
+        }
+        if let Some(snapshot) = self.live_snapshot.clone() {
+            ui.separator();
+            if let Some(error) = &snapshot.poll_error {
+                ui.colored_label(
+                    severity_color(ui, Severity::Medium),
+                    format!("Inventory update delayed: {error}"),
+                );
+            }
+            ui.label(format!("Interface {} · {} retained recent findings · {} earlier records outside the recent view", snapshot.interface, snapshot.findings.len(), snapshot.dropped_findings));
+            ui.collapsing("Traffic statistics", |ui| {
+                json_details(ui, snapshot.stats.as_ref())
+            });
+            ui.collapsing(format!("Devices ({})", snapshot.devices.len()), |ui| {
+                json_rows(ui, "live-devices", snapshot.devices.as_ref(), "")
+            });
+            ui.collapsing(format!("Flows ({})", snapshot.flows.len()), |ui| {
+                json_rows(ui, "live-flows", snapshot.flows.as_ref(), "")
+            });
+            ui.collapsing("Recent live findings", |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("recent-live-findings")
+                    .max_height(320.0)
+                    .show_rows(ui, 48.0, snapshot.findings.len(), |ui, range| {
+                        for index in range {
+                            let alert = &snapshot.findings[index];
+                            ui.colored_label(
+                                severity_color(ui, alert.severity),
+                                format!("{} · {} · {}", alert.severity, alert.rule_id, alert.title),
+                            );
+                            ui.label(format!("{} → {}", address(alert.src), address(alert.dst)));
+                        }
+                    });
+            });
+        }
+    }
+    fn reports_page(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Reports and history");
+        self.path_input(
+            ui,
+            Input::Open,
+            "Open a saved JSON report",
+            "Path to a Tracehound analysis, evaluation, or suite report",
+        );
+        if ui
+            .add_enabled(
+                !self.open_path.trim().is_empty() && !self.closing,
+                egui::Button::new("Open report"),
+            )
+            .clicked()
+        {
+            let path = PathBuf::from(self.open_path.trim());
+            self.work(false, move || {
+                store::load_report(&path).map(|document| Work::Document(Arc::new(document)))
+            });
+        }
+        ui.add_space(8.0);
+        self.path_input(
+            ui,
+            Input::History,
+            "Local report history",
+            "Directory for explicitly saved reports",
+        );
+        if ui.button("Refresh history").clicked() {
+            self.refresh_history();
+        }
+        let mut open_id = None;
+        let mut baseline_id = None;
+        egui::ScrollArea::vertical()
+            .id_salt("history-list")
+            .max_height(230.0)
+            .show_rows(ui, 52.0, self.history.len(), |ui, range| {
+                for index in range {
+                    let entry = &self.history[index];
+                    ui.horizontal(|ui| {
+                        if ui.button("Open").clicked() {
+                            open_id = Some(entry.id.clone());
+                        }
+                        if ui.button("Use as baseline").clicked() {
+                            baseline_id = Some(entry.id.clone());
+                        }
+                        ui.vertical(|ui| {
+                            ui.label(&entry.title);
+                            ui.small(format!(
+                                "{} · {} findings · saved {}",
+                                entry.mode, entry.findings, entry.id
+                            ));
+                        });
+                    });
+                }
+            });
+        if let Some(id) = open_id {
+            let root = PathBuf::from(self.history_root.trim());
+            self.work(false, move || {
+                ReportStore::new(root)
+                    .open(&id)
+                    .map(|report| Work::Document(Arc::new(report)))
+            });
+        }
+        if let Some(id) = baseline_id {
+            self.baseline = PathBuf::from(self.history_root.trim())
+                .join(format!("{id}.json"))
+                .to_string_lossy()
+                .into_owned();
+        }
+        if self.history.is_empty() {
+            ui.small("No history loaded. Save a completed report below, then refresh to list it.");
+        }
+        ui.separator();
+        self.path_input(
+            ui,
+            Input::Baseline,
+            "Comparison baseline",
+            "Choose an older report to compare with the report currently open",
+        );
+        if ui
+            .add_enabled(
+                self.result.is_some() && !self.baseline.trim().is_empty() && !self.closing,
+                egui::Button::new("Compare with current report"),
+            )
+            .clicked()
+        {
+            let path = PathBuf::from(self.baseline.trim());
+            let after = self.result.clone().unwrap();
+            self.work(false, move || {
+                let before = store::load_report(&path)?;
+                Ok(Work::Compared(
+                    before.title(),
+                    after.title(),
+                    store::compare(&before, &after),
+                ))
+            });
+        }
+        if let Some((before, after, comparison)) = &self.comparison {
+            ui.strong(format!("{} → {}", before, after));
+            ui.label(format!(
+                "{} added · {} removed · {} changed · {} unchanged",
+                comparison.added.len(),
+                comparison.removed.len(),
+                comparison.changed.len(),
+                comparison.unchanged
+            ));
+            ui.collapsing("Added findings", |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("comparison-added")
+                    .max_height(240.0)
+                    .show_rows(ui, 44.0, comparison.added.len(), |ui, range| {
+                        for index in range {
+                            let entry = &comparison.added[index];
+                            comparison_finding(ui, "+", entry.case.as_deref(), &entry.finding);
+                        }
+                    });
+            });
+            ui.collapsing("Removed findings", |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("comparison-removed")
+                    .max_height(240.0)
+                    .show_rows(ui, 44.0, comparison.removed.len(), |ui, range| {
+                        for index in range {
+                            let entry = &comparison.removed[index];
+                            comparison_finding(ui, "−", entry.case.as_deref(), &entry.finding);
+                        }
+                    });
+            });
+            ui.collapsing("Changed findings", |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("comparison-changed")
+                    .max_height(260.0)
+                    .show_rows(ui, 70.0, comparison.changed.len(), |ui, range| {
+                        for index in range {
+                            let entry = &comparison.changed[index];
+                            comparison_finding(ui, "Δ", entry.case.as_deref(), &entry.after);
+                            ui.small(format!(
+                                "Previously {} severity, {} occurrences; now {}, {} occurrences",
+                                entry.before.alert.severity,
+                                entry.before.occurrences,
+                                entry.after.alert.severity,
+                                entry.after.occurrences
+                            ));
+                        }
+                    });
+            });
+        }
+    }
+    fn settings_page(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Analysis settings");
+        ui.label("Settings apply to new jobs. Captures, reports, and fingerprint feeds stay on this computer.");
+        ui.add_enabled_ui(!self.active() && !self.closing, |ui| {
+            self.path_input(ui, Input::Sensor, "Tracehound executable", "Full path or executable name on PATH");
+            self.path_input(ui, Input::Rules, "Custom rule directory (optional)", "Leave empty to use bundled rules");
+            let label = ui.label("Internal networks (optional, comma-separated CIDRs)");
+            ui.add(egui::TextEdit::singleline(&mut self.home_nets).hint_text("10.0.0.0/8,192.168.0.0/16").desired_width(f32::INFINITY)).labelled_by(label.id);
+            ui.horizontal(|ui| { ui.label("Per-capture timeout (seconds; 0 = unlimited)"); ui.add(egui::DragValue::new(&mut self.timeout).range(0..=86_400)); });
+            ui.horizontal(|ui| { ui.label("Maximum alert records"); ui.add(egui::DragValue::new(&mut self.max_alerts).range(1..=10_000_000)); });
+            ui.separator(); ui.strong("TLS fingerprint pair intelligence");
+            self.path_input(ui, Input::Feed, "Local source-attributed pair feed (optional)", "Path to a validated pair-feed JSON file");
+            ui.horizontal(|ui| {
+                if ui.add_enabled(!self.feed.trim().is_empty(), egui::Button::new("Validate local feed")).clicked() {
+                    let path = PathBuf::from(self.feed.trim()); self.work(false, move || { let feed = PairFeed::load(&path)?; Ok(Work::Message(format!("Feed valid: {} attributed pairs. Source: {}. {}", feed.entries.len(), feed.source_url, feed.license))) });
+                }
+                if ui.add_enabled(!self.feed.trim().is_empty(), egui::Button::new("Download publisher mapping to this path")).clicked() {
+                    let path = PathBuf::from(self.feed.trim()); self.work(false, move || { let feed = feed::update_public_mapping(&path)?; let message = format!("Saved {} attributed pairs to {}. Source: {}. {}", feed.entries.len(), path.display(), feed.source_url, feed.license); Ok(Work::Feed(path, message)) });
+                }
+            });
+            ui.hyperlink_to("Publisher mapping and terms", feed::PUBLIC_MAPPING_URL);
+            ui.small("Downloading is explicit and requires a new destination file. Publisher terms apply; no publisher database is bundled. Pair matches are associations that require supporting evidence.");
+            ui.small("Local pair feeds apply to capture-file analysis and completed recordings. The Linux live stream shows the sensor's live rules.");
+        });
+    }
+}
+
+impl Desktop {
+    fn results(&mut self, ui: &mut egui::Ui) {
+        let Some(document) = self.result.clone() else {
+            return;
+        };
+        ui.add_space(14.0);
+        ui.separator();
+        ui.heading("Current report");
+        ui.label(document.title());
+        if let ReportDocument::Corpus(corpus) = document.as_ref() {
+            ui.label(format!(
+                "{} labelled cases · {} unlabelled observations",
+                corpus.evaluation.captures.len(),
+                corpus.observations.len()
+            ));
+            ui.small("Accuracy measurements apply to the labelled cases. Unlabelled observations provide findings and protocol context.");
+            ui.collapsing(
+                format!("Source provenance ({})", corpus.sources.len()),
+                |ui| {
+                    json_rows(ui, "corpus-provenance", &corpus.sources, "");
+                },
+            );
+        }
+        if let Some(suite) = labelled_suite(&document) {
+            if suite.captures.is_empty() {
+                ui.label("This corpus has no labelled cases; accuracy measurements are undefined.");
+            } else {
+                ui.label(format!("{} · {} passed / {} captures · {} missed expectations · {} unexpected findings · precision {} · recall {}", if suite.passed { "PASS" } else { "FAIL" }, suite.summary.passed, suite.summary.captures, suite.summary.missed_expectations, suite.summary.unexpected_findings, percent(suite.summary.precision), percent(suite.summary.recall)));
+            }
+            let previous = self.case;
+            egui::ComboBox::from_id_salt("suite-case")
+                .width(500.0)
+                .selected_text(case_title(&document, self.case))
+                .show_ui(ui, |ui| {
+                    for (index, case) in suite.captures.iter().enumerate() {
+                        ui.selectable_value(
+                            &mut self.case,
+                            index,
+                            format!(
+                                "{} · {}",
+                                if case.passed { "PASS" } else { "FAIL" },
+                                case.name
+                            ),
+                        );
+                    }
+                    if let ReportDocument::Corpus(corpus) = document.as_ref() {
+                        for (index, report) in corpus.observations.iter().enumerate() {
+                            ui.selectable_value(
+                                &mut self.case,
+                                suite.captures.len() + index,
+                                format!("Observation · {}", report.capture.display()),
+                            );
+                        }
+                    }
+                });
+            if previous != self.case {
+                self.selected = None;
+                self.view_floor = current_floor(Some(&document), self.case);
+                self.rebuild_filter();
+            }
+        }
+        if self.result_page == ResultPage::Evaluation
+            && evaluation(Some(&document), self.case).is_none()
+        {
+            self.result_page = ResultPage::Findings;
+        }
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.result_page, ResultPage::Findings, "Findings");
+            ui.selectable_value(
+                &mut self.result_page,
+                ResultPage::Protocols,
+                "HTTP / TLS / DNS context",
+            );
+            if evaluation(Some(&document), self.case).is_some() {
+                ui.selectable_value(
+                    &mut self.result_page,
+                    ResultPage::Evaluation,
+                    "Evaluation details",
+                );
+            }
+        });
+        match self.result_page {
+            ResultPage::Findings => self.finding_results(ui, &document),
+            ResultPage::Protocols => self.protocol_results(ui, &document),
+            ResultPage::Evaluation => {
+                if let Some(report) = evaluation(Some(&document), self.case) {
+                    evaluation_details(ui, report);
+                }
+            }
+        }
+        ui.separator();
+        ui.add_enabled_ui(!self.closing, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("Save current report to history").clicked() {
+                    let root = PathBuf::from(self.history_root.trim());
+                    let document = document.clone();
+                    self.work(false, move || {
+                        let entry = ReportStore::new(root).save(document.as_ref())?;
+                        Ok(Work::Message(format!(
+                            "Saved report to local history: {}",
+                            entry.id
+                        )))
+                    });
+                }
+                ui.small("Saves the complete report, including every suite case.");
+            });
+            self.path_input(
+                ui,
+                Input::Export,
+                "Export JSON report",
+                "Choose a new filename",
+            );
+            if ui
+                .add_enabled(
+                    !self.export.trim().is_empty(),
+                    egui::Button::new("Export complete report"),
+                )
+                .clicked()
+            {
+                let path = PathBuf::from(self.export.trim());
+                let document = document.clone();
+                self.work(false, move || {
+                    store::write_new(&path, document.as_ref())?;
+                    Ok(Work::Message(format!(
+                        "Report exported to {}",
+                        path.display()
+                    )))
+                });
+            }
+        });
+        ui.small("View filters do not affect saved reports. Existing files are preserved.");
+    }
+    fn finding_results(&mut self, ui: &mut egui::Ui, document: &ReportDocument) {
+        let values = findings(Some(document), self.case);
+        let collected_floor = current_floor(Some(document), self.case);
         ui.small(format!(
-            "This analysis collected findings at {} and above. Analyse again at a lower reporting severity to include lower levels.",
-            capture.report.min_severity
+            "{} grouped findings · report includes {} severity and above",
+            values.len(),
+            collected_floor
         ));
         ui.horizontal(|ui| {
             let search = ui.add(
                 egui::TextEdit::singleline(&mut self.search)
-                    .hint_text("Search host, domain, rule, or evidence")
-                    .desired_width(340.0),
+                    .hint_text("Search rule, host, domain, or evidence")
+                    .desired_width(350.0),
             );
-            let previous = self.view_floor;
-            ui.label("Minimum severity");
-            severity_selector_min(
-                ui,
-                "view-floor",
-                &mut self.view_floor,
-                capture.report.min_severity,
-            );
-            if search.changed() || previous != self.view_floor {
+            let old_floor = self.view_floor;
+            severity_selector(ui, "finding-floor", &mut self.view_floor, collected_floor);
+            if search.changed() || old_floor != self.view_floor {
                 self.rebuild_filter();
             }
             ui.label(format!("{} shown", self.filtered.len()));
         });
-        ui.separator();
-        if capture.report.findings.is_empty() {
-            ui.label("No findings at the selected analysis severity. You can analyse again with a lower reporting floor in Analysis settings.");
-        } else if self.filtered.is_empty() {
-            ui.label("No findings match these filters. Clear the search or lower the view's severity filter.");
-        } else {
-            ui.columns(2, |columns| {
-                columns[0].strong("Select a finding");
-                let row_height = 68.0;
-                egui::ScrollArea::vertical()
-                    .id_salt("findings-list")
-                    .max_height(300.0)
-                    .show_rows(
-                        &mut columns[0],
-                        row_height,
-                        self.filtered.len(),
-                        |ui, range| {
-                            for position in range {
-                                let index = self.filtered[position];
-                                let finding = &capture.report.findings[index];
-                                let text = format!(
-                                    "{} · {}\n{}\n{} → {}",
-                                    finding.alert.severity.to_string().to_uppercase(),
-                                    finding.alert.rule_id,
-                                    finding.alert.title,
-                                    finding.alert.src.map(|a| a.to_string()).unwrap_or_default(),
-                                    finding
-                                        .alert
-                                        .dst
-                                        .map(|a| a.to_string())
-                                        .unwrap_or_else(|| "multiple destinations".into())
-                                );
-                                if ui
-                                    .add_sized(
-                                        [ui.available_width(), row_height - 4.0],
-                                        egui::Button::new(text)
-                                            .selected(self.selected == Some(index)),
-                                    )
-                                    .clicked()
-                                {
-                                    self.selected = Some(index);
-                                }
-                            }
-                        },
-                    );
-                columns[1].strong("Evidence and details");
-                egui::ScrollArea::vertical()
-                    .id_salt("finding-details")
-                    .max_height(300.0)
-                    .show(&mut columns[1], |ui| {
-                        if let Some(index) = self.selected {
-                            finding_details(ui, &capture.report.findings[index]);
-                        } else {
-                            ui.label(
-                                "Choose a finding to inspect its explanation and measurements.",
-                            );
+        if values.is_empty() {
+            ui.label("No findings at the collected severity. Reanalyse at a lower severity to include lower-level findings.");
+            return;
+        }
+        if self.filter_loading {
+            ui.label("Filtering findings…");
+            return;
+        }
+        if self.filtered.is_empty() {
+            ui.label("No findings match these filters.");
+            return;
+        }
+        ui.columns(2, |columns| {
+            egui::ScrollArea::vertical()
+                .id_salt("findings-list")
+                .max_height(330.0)
+                .show_rows(&mut columns[0], 70.0, self.filtered.len(), |ui, range| {
+                    for position in range {
+                        let index = self.filtered[position];
+                        let finding = &values[index];
+                        let text = format!(
+                            "{} · {} · {} occurrence(s)\n{}\n{} → {}",
+                            finding.alert.severity.to_string().to_uppercase(),
+                            finding.alert.rule_id,
+                            finding.occurrences,
+                            finding.alert.title,
+                            address(finding.alert.src),
+                            address(finding.alert.dst)
+                        );
+                        if ui
+                            .add_sized(
+                                [ui.available_width(), 66.0],
+                                egui::Button::new(text).selected(self.selected == Some(index)),
+                            )
+                            .clicked()
+                        {
+                            self.selected = Some(index);
                         }
-                    });
+                    }
+                });
+            egui::ScrollArea::vertical()
+                .id_salt("finding-details")
+                .max_height(330.0)
+                .show(&mut columns[1], |ui| {
+                    if let Some(finding) = self.selected.and_then(|index| values.get(index)) {
+                        finding_details(ui, finding);
+                    } else {
+                        ui.label("Select a finding to inspect its explanation and measurements.");
+                    }
+                });
+        });
+    }
+    fn protocol_results(&mut self, ui: &mut egui::Ui, document: &ReportDocument) {
+        let value = enrichment(document, self.case);
+        if value.is_null() {
+            ui.label("This report has no protocol enrichment. Analyse the original capture with the current backend to collect HTTP, TLS, and DNS context.");
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.label("Filter observations");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.context_search)
+                    .hint_text("Host, domain, fingerprint, or address")
+                    .desired_width(400.0),
+            );
+        });
+        let key = (self.case, self.context_search.to_lowercase());
+        if self.context_key.as_ref() != Some(&key) && !self.closing {
+            self.context_key = Some(key.clone());
+            let generation = self.context_generation.fetch_add(1, Ordering::Relaxed) + 1;
+            let current = Arc::clone(&self.context_generation);
+            self.context_loading = true;
+            let document = self.result.clone().unwrap();
+            self.work(false, move || {
+                let enrichment = enrichment(&document, key.0);
+                let rows = ["http", "tls", "dns"].map(|name| {
+                    enrichment
+                        .get(name)
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .enumerate()
+                        .take_while(|_| current.load(Ordering::Relaxed) == generation)
+                        .filter_map(|(index, value)| {
+                            (key.1.is_empty() || value.to_string().to_lowercase().contains(&key.1))
+                                .then_some(index)
+                        })
+                        .collect()
+                });
+                Ok(Work::Context(generation, rows))
             });
         }
-        ui.separator();
-        ui.horizontal(|ui| {
-            let label = ui.label("JSON report");
-            ui.add(egui::TextEdit::singleline(&mut self.export_text).desired_width(400.0))
-                .labelled_by(label.id);
-            if ui
-                .add_enabled(
-                    self.export_receiver.is_none() && !self.closing,
-                    egui::Button::new("Export report"),
-                )
-                .clicked()
-            {
-                self.export();
+        if self.context_loading {
+            ui.label("Filtering protocol context…");
+        }
+        ui.label(format!("{} input packets · {} prepared packets · {} reassembled datagrams · {} incomplete/discarded fragment sets", value["input_packets"], value["output_packets"], value["reassembled_datagrams"], value["discarded_fragment_sets"]));
+        if let Some(warnings) = value.get("warnings").and_then(Value::as_array) {
+            for warning in warnings {
+                ui.colored_label(
+                    severity_color(ui, Severity::Medium),
+                    warning.as_str().unwrap_or("Capture warning"),
+                );
             }
-            if self.export_receiver.is_some() {
-                ui.spinner();
-                ui.label("Saving…");
-            }
-        });
-        ui.small("Exports include every finding from this analysis, regardless of the current view filters. Existing files are preserved.");
+        }
+        for (position, (key, title)) in [
+            ("http", "HTTP requests and JA4H"),
+            ("tls", "TLS client/server pairs and JA4 / JA4S"),
+            ("dns", "DNS queries"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let values = value
+                .get(key)
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            ui.collapsing(format!("{title} ({})", values.len()), |ui| {
+                if !self.context_loading {
+                    indexed_json_rows(ui, key, values, &self.context_rows[position]);
+                }
+            });
+        }
+        ui.small("Context is limited to protocols and complete sessions that the parser can observe. Encrypted payloads are not decrypted.");
     }
 }
 
 impl eframe::App for Desktop {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll();
-        if ui.ctx().input(|input| input.viewport().close_requested())
-            && (self.active() || self.export_receiver.is_some())
-        {
+        if ui.ctx().input(|input| input.viewport().close_requested()) && self.busy() {
             self.closing = true;
             ui.ctx()
                 .send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            if let Some(job) = &self.job {
-                job.cancel();
-                self.state = Some(job.snapshot().state);
+            if let Some(task) = &self.task {
+                task.cancel();
             }
         }
-        if self.closing && !self.active() && self.export_receiver.is_none() {
+        if self.closing && !self.busy() {
             self.closing = false;
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        if self.active() || self.export_receiver.is_some() {
+        if self.busy() {
             ui.ctx().request_repaint_after(Duration::from_millis(100));
         }
-        if !self.active() {
-            let dropped = ui.ctx().input(|input| {
+        if !self.active() && !self.closing {
+            let files = ui.ctx().input(|input| {
                 input
                     .raw
                     .dropped_files
@@ -493,54 +1433,272 @@ impl eframe::App for Desktop {
                     .map(|file| file.path().to_path_buf())
                     .collect::<Vec<_>>()
             });
-            if dropped.len() == 1 {
-                self.capture_text = dropped[0].to_string_lossy().into_owned();
-                self.dropped_capture = Some(dropped[0].clone());
-                self.error = None;
-            } else if dropped.len() > 1 {
-                self.error =
-                    Some("Open one capture at a time. Drop a single PCAP or PCAPNG file.".into());
+            if files.len() == 1 {
+                let path = files[0].to_string_lossy().into_owned();
+                match self.page {
+                    Page::Suite => self.suite = path,
+                    Page::Reports => self.open_path = path,
+                    _ => {
+                        self.capture = path;
+                        self.page = Page::Capture;
+                    }
+                }
+            } else if files.len() > 1 {
+                self.error = Some("Drop one input file at a time. Use a suite manifest to evaluate multiple captures.".into());
             }
         }
         egui::CentralPanel::default().show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.heading("Tracehound");
+                ui.add_space(15.0);
+                for (page, title) in [
+                    (Page::Capture, "Analyse"),
+                    (Page::Suite, "Evaluate"),
+                    (Page::Live, "Capture traffic"),
+                    (Page::Reports, "Reports"),
+                    (Page::Settings, "Settings"),
+                ] {
+                    if ui.selectable_value(&mut self.page, page, title).clicked()
+                        && page == Page::Reports
+                        && self.history.is_empty()
+                        && self.workers.is_empty()
+                    {
+                        self.refresh_history();
+                    }
+                }
+            });
+            ui.separator();
+            ui.horizontal_wrapped(|ui| {
+                if self.busy() {
+                    ui.spinner();
+                }
+                ui.label(&self.status);
+                if self.active() && !self.closing && ui.button("Cancel current task").clicked() {
+                    self.cancel_pending_start = true;
+                    if let Some(task) = &self.task {
+                        task.cancel();
+                    }
+                }
+            });
+            if self.closing {
+                ui.strong("Stopping capture and finishing background operations before closing…");
+            }
+            if let Some(error) = &self.error {
+                ui.group(|ui| {
+                    ui.colored_label(
+                        severity_color(ui, Severity::High),
+                        RichText::new("Action needed").strong(),
+                    );
+                    ui.label(error);
+                });
+            }
+            if let Some(notice) = &self.notice {
+                ui.label(notice);
+            }
             egui::ScrollArea::vertical()
-                .id_salt("application")
+                .id_salt("workspace")
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.heading("Tracehound");
-                        ui.label("CAPTURE ANALYSIS");
-                    });
-                    ui.label("Investigate network captures with the evidence behind each finding.");
-                    ui.add_space(12.0);
-                    self.setup(ui);
-                    if self.closing {
-                        ui.add_space(8.0);
-                        ui.strong(if self.active() {
-                            "Stopping analysis before closing…"
-                        } else {
-                            "Finishing report export before closing…"
-                        });
+                    ui.add_space(8.0);
+                    match self.page {
+                        Page::Capture => self.capture_page(ui),
+                        Page::Suite => self.suite_page(ui),
+                        Page::Live => self.live_page(ui),
+                        Page::Reports => self.reports_page(ui),
+                        Page::Settings => self.settings_page(ui),
                     }
-                    if let Some(error) = &self.error {
-                        ui.add_space(8.0);
-                        ui.group(|ui| {
-                            ui.colored_label(
-                                severity_color(ui, Severity::High),
-                                RichText::new("Action needed").strong(),
-                            );
-                            ui.label(error);
-                        });
+                    if !matches!(self.page, Page::Settings) {
+                        self.results(ui);
                     }
-                    if let Some(notice) = &self.notice {
-                        ui.add_space(8.0);
-                        ui.label(notice);
-                    }
-                    self.results(ui);
                 });
         });
+        let ctx = ui.ctx().clone();
+        self.picker(&ctx);
     }
 }
 
+fn document_from_job(report: &JobReport) -> ReportDocument {
+    match report {
+        JobReport::Analysis(report) => ReportDocument::Analysis(report.clone()),
+        JobReport::Evaluation(report) => ReportDocument::Evaluation(report.clone()),
+    }
+}
+fn findings(document: Option<&ReportDocument>, case: usize) -> &[Finding] {
+    match document {
+        Some(ReportDocument::Analysis(report)) => &report.report.findings,
+        Some(ReportDocument::Evaluation(report)) => &report.findings,
+        Some(ReportDocument::Suite(report)) => report
+            .captures
+            .get(case)
+            .map(|case| case.findings.as_slice())
+            .unwrap_or_default(),
+        Some(ReportDocument::Corpus(report)) => {
+            if let Some(evaluation) = report.evaluation.captures.get(case) {
+                &evaluation.findings
+            } else {
+                report
+                    .observations
+                    .get(case.saturating_sub(report.evaluation.captures.len()))
+                    .map(|report| report.report.findings.as_slice())
+                    .unwrap_or_default()
+            }
+        }
+        None => &[],
+    }
+}
+fn evaluation(document: Option<&ReportDocument>, case: usize) -> Option<&EvaluationReport> {
+    match document {
+        Some(ReportDocument::Evaluation(report)) => Some(report),
+        Some(ReportDocument::Suite(report)) => report.captures.get(case),
+        Some(ReportDocument::Corpus(report)) => report.evaluation.captures.get(case),
+        _ => None,
+    }
+}
+fn current_floor(document: Option<&ReportDocument>, case: usize) -> Severity {
+    match document {
+        Some(ReportDocument::Analysis(report)) => report.report.min_severity,
+        Some(document @ ReportDocument::Corpus(_)) => observation(document, case)
+            .map(|report| report.report.min_severity)
+            .or_else(|| evaluation(Some(document), case).map(|report| report.min_severity))
+            .unwrap_or(Severity::Low),
+        _ => evaluation(document, case)
+            .map(|case| case.min_severity)
+            .unwrap_or(Severity::Low),
+    }
+}
+fn enrichment(document: &ReportDocument, case: usize) -> &Value {
+    match document {
+        ReportDocument::Analysis(report) => &report.enrichment,
+        ReportDocument::Corpus(_) => {
+            if let Some(report) = observation(document, case) {
+                &report.enrichment
+            } else {
+                evaluation(Some(document), case)
+                    .map(|report| &report.enrichment)
+                    .unwrap_or(&Value::Null)
+            }
+        }
+        _ => evaluation(Some(document), case)
+            .map(|report| &report.enrichment)
+            .unwrap_or(&Value::Null),
+    }
+}
+fn labelled_suite(document: &ReportDocument) -> Option<&SuiteReport> {
+    match document {
+        ReportDocument::Suite(report) => Some(report),
+        ReportDocument::Corpus(report) => Some(&report.evaluation),
+        _ => None,
+    }
+}
+fn observation(
+    document: &ReportDocument,
+    case: usize,
+) -> Option<&tracehound_eval::runtime::CaptureReport> {
+    match document {
+        ReportDocument::Corpus(report) => case
+            .checked_sub(report.evaluation.captures.len())
+            .and_then(|index| report.observations.get(index)),
+        _ => None,
+    }
+}
+fn case_title(document: &ReportDocument, case: usize) -> String {
+    if let Some(report) = evaluation(Some(document), case) {
+        report.name.clone()
+    } else if let Some(report) = observation(document, case) {
+        format!("Observation · {}", report.capture.display())
+    } else {
+        "Choose capture".into()
+    }
+}
+fn finding_search(finding: &Finding) -> String {
+    format!(
+        "{} {} {} {} {} {}",
+        finding.alert.rule_id,
+        finding.alert.title,
+        address(finding.alert.src),
+        address(finding.alert.dst),
+        finding.alert.description.as_deref().unwrap_or(""),
+        finding.alert.evidence
+    )
+    .to_lowercase()
+}
+fn address(address: Option<std::net::IpAddr>) -> String {
+    address
+        .map(|address| address.to_string())
+        .unwrap_or_else(|| "any / unspecified".into())
+}
+fn percent(value: Option<f64>) -> String {
+    value
+        .map(|value| format!("{:.1}%", value * 100.0))
+        .unwrap_or_else(|| "not defined".into())
+}
+fn evaluation_details(ui: &mut egui::Ui, report: &EvaluationReport) {
+    ui.strong(format!(
+        "{} · {}",
+        if report.passed { "PASS" } else { "FAIL" },
+        report.name
+    ));
+    ui.label(format!(
+        "{} matched / {} expectations · {} unexpected findings · {} from explicitly benign hosts",
+        report.summary.matched_expectations,
+        report.summary.expected_total,
+        report.summary.unexpected_findings,
+        report.summary.benign_findings
+    ));
+    ui.label(format!(
+        "Precision {} · Recall {}",
+        percent(report.summary.precision),
+        percent(report.summary.recall)
+    ));
+    ui.small("Precision assumes the supplied positive labels are complete. Benign-host findings are a subset of unexpected findings; no true-negative count or false-positive rate is inferred.");
+    ui.collapsing(
+        format!("Missed expectations ({})", report.missed_expectations.len()),
+        |ui| {
+            for entry in &report.missed_expectations {
+                ui.label(format!(
+                    "{} · {} → {}",
+                    entry.rule_id,
+                    entry.src,
+                    address(entry.dst)
+                ));
+            }
+        },
+    );
+    ui.collapsing(
+        format!(
+            "Matched expectations ({})",
+            report.matched_expectations.len()
+        ),
+        |ui| {
+            for entry in &report.matched_expectations {
+                ui.label(format!(
+                    "{} · {} → {}",
+                    entry.rule_id,
+                    entry.src,
+                    address(entry.dst)
+                ));
+            }
+        },
+    );
+    ui.collapsing(
+        format!("Unexpected findings ({})", report.unexpected_findings.len()),
+        |ui| {
+            for finding in &report.unexpected_findings {
+                comparison_finding(ui, "", None, finding);
+            }
+        },
+    );
+}
+fn comparison_finding(ui: &mut egui::Ui, symbol: &str, case: Option<&str>, finding: &Finding) {
+    ui.label(format!(
+        "{symbol} {}{} · {} · {} → {} · {} occurrence(s)",
+        case.map(|name| format!("{name}: ")).unwrap_or_default(),
+        finding.alert.rule_id,
+        finding.alert.title,
+        address(finding.alert.src),
+        address(finding.alert.dst),
+        finding.occurrences
+    ));
+}
 fn finding_details(ui: &mut egui::Ui, finding: &Finding) {
     let alert = &finding.alert;
     ui.colored_label(
@@ -556,48 +1714,101 @@ fn finding_details(ui: &mut egui::Ui, finding: &Finding) {
         ui.label(description);
     }
     if let Some(score) = alert.score {
-        ui.label(format!("Sensor confidence score: {score:.2}"));
+        ui.label(format!("Sensor confidence: {score:.2}"));
     }
     if let Some(time) = &alert.time {
         ui.label(format!("Latest observation: {time}"));
     }
     ui.separator();
-    ui.strong("Measurements");
-    if let Some(evidence) = alert.evidence.as_object() {
-        for (name, value) in evidence {
-            ui.horizontal_wrapped(|ui| {
-                ui.strong(name.replace('_', " "));
-                ui.monospace(
-                    value
-                        .as_str()
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| value.to_string()),
-                );
-            });
-        }
-    } else {
-        ui.monospace(alert.evidence.to_string());
-    }
+    json_details(ui, &alert.evidence);
     if !alert.extra.is_empty() {
-        ui.collapsing("Additional sensor metadata", |ui| {
-            if let Ok(text) = serde_json::to_string_pretty(&alert.extra) {
-                ui.monospace(text);
+        ui.collapsing("Additional metadata", |ui| {
+            for (key, value) in alert.extra.iter().take(64) {
+                ui.strong(key.replace('_', " "));
+                ui.monospace(value_preview(value, 2));
+            }
+            if alert.extra.len() > 64 {
+                ui.small("Additional fields are retained in the complete JSON report.");
             }
         });
     }
 }
-
-fn severity_selector(ui: &mut egui::Ui, id: &str, value: &mut Severity) {
-    severity_selector_min(ui, id, value, Severity::Info);
+fn json_details(ui: &mut egui::Ui, value: &Value) {
+    if let Some(object) = value.as_object() {
+        for (key, value) in object.iter().take(64) {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong(key.replace('_', " "));
+                ui.monospace(value_preview(value, 2));
+            });
+        }
+        if object.len() > 64 {
+            ui.small("Additional fields are retained in the complete JSON report.");
+        }
+    } else {
+        ui.monospace(value_preview(value, 2));
+    }
 }
-
-fn severity_selector_min(
-    ui: &mut egui::Ui,
-    id: &str,
-    value: &mut Severity,
-    collected_floor: Severity,
-) {
-    *value = (*value).max(collected_floor);
+fn value_preview(value: &Value, depth: usize) -> String {
+    match value {
+        Value::String(text) => {
+            let mut preview = text.chars().take(4097).collect::<String>();
+            if preview.chars().count() > 4096 {
+                preview = preview.chars().take(4096).collect();
+                preview.push_str("… [full value in JSON]");
+            }
+            preview
+        }
+        Value::Array(values) if depth > 0 => {
+            let mut preview = values
+                .iter()
+                .take(8)
+                .map(|value| value_preview(value, depth - 1))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if values.len() > 8 {
+                preview.push_str(", … [full list in JSON]");
+            }
+            format!("[{preview}]")
+        }
+        Value::Array(values) => format!("{} entries [details in JSON]", values.len()),
+        Value::Object(values) if depth > 0 => {
+            let mut preview = values
+                .iter()
+                .take(8)
+                .map(|(key, value)| format!("{key}: {}", value_preview(value, depth - 1)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if values.len() > 8 {
+                preview.push_str(", … [full object in JSON]");
+            }
+            format!("{{{preview}}}")
+        }
+        Value::Object(values) => format!("{} fields [details in JSON]", values.len()),
+        _ => value.to_string(),
+    }
+}
+fn json_rows(ui: &mut egui::Ui, id: &str, values: &[Value], query: &str) {
+    let query = query.to_lowercase();
+    let filtered = values
+        .iter()
+        .enumerate()
+        .filter_map(|(index, value)| {
+            (query.is_empty() || value.to_string().to_lowercase().contains(&query)).then_some(index)
+        })
+        .collect::<Vec<_>>();
+    indexed_json_rows(ui, id, values, &filtered);
+}
+fn indexed_json_rows(ui: &mut egui::Ui, id: &str, values: &[Value], filtered: &[usize]) {
+    if filtered.is_empty() {
+        ui.label("No observations match this view.");
+    }
+    egui::ScrollArea::vertical().id_salt(id).max_height(320.0).show(ui, |ui| {
+        for &index in filtered.iter().take(500) { if let Some(value) = values.get(index) { ui.push_id(index, |ui| { ui.group(|ui| json_details(ui, value)); }); } }
+        if filtered.len() > 500 { ui.small(format!("Showing 500 of {} observations. Refine the search; the JSON report retains all observations.", filtered.len())); }
+    });
+}
+fn severity_selector(ui: &mut egui::Ui, id: &str, value: &mut Severity, floor: Severity) {
+    *value = (*value).max(floor);
     egui::ComboBox::from_id_salt(id)
         .selected_text(value.to_string())
         .show_ui(ui, |ui| {
@@ -608,13 +1819,12 @@ fn severity_selector_min(
                 Severity::High,
                 Severity::Critical,
             ] {
-                ui.add_enabled_ui(severity >= collected_floor, |ui| {
+                ui.add_enabled_ui(severity >= floor, |ui| {
                     ui.selectable_value(value, severity, severity.to_string());
                 });
             }
         });
 }
-
 fn severity_color(ui: &egui::Ui, severity: Severity) -> Color32 {
     match (ui.visuals().dark_mode, severity) {
         (true, Severity::Critical) => Color32::from_rgb(255, 146, 190),
@@ -628,29 +1838,13 @@ fn severity_color(ui: &egui::Ui, severity: Severity) -> Color32 {
         (_, Severity::Info) => ui.visuals().text_color(),
     }
 }
-
-fn status_label(state: Option<JobState>) -> &'static str {
-    match state {
-        None => "Ready",
-        Some(JobState::Starting) => "Starting…",
-        Some(JobState::Running) => "Analysing…",
-        Some(JobState::Cancelling) => "Cancelling…",
-        Some(JobState::Completed) => "Completed",
-        Some(JobState::Cancelled) => "Cancelled",
-        Some(JobState::TimedOut) => "Timed out",
-        Some(JobState::Failed) => "Failed",
-    }
-}
-
 fn non_empty(value: &str) -> Option<&str> {
     let value = value.trim();
     (!value.is_empty()).then_some(value)
 }
-
 fn optional_path(value: &str) -> Option<PathBuf> {
     non_empty(value).map(PathBuf::from)
 }
-
 fn find_sensor() -> PathBuf {
     let filename = if cfg!(windows) {
         "tracehound.exe"
@@ -674,9 +1868,9 @@ fn find_sensor() -> PathBuf {
     {
         for root in start.ancestors().take(8) {
             for directory in ["bin", "dist/backend-check"] {
-                let candidate = root.join(directory).join(filename);
-                if candidate.is_file() {
-                    return candidate;
+                let path = root.join(directory).join(filename);
+                if path.is_file() {
+                    return path;
                 }
             }
         }
@@ -684,18 +1878,193 @@ fn find_sensor() -> PathBuf {
     filename.into()
 }
 
-fn write_report(path: &Path, report: &JobReport) -> Result<(), String> {
-    let text =
-        serde_json::to_string_pretty(report).map_err(|error| format!("Prepare report: {error}"))?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|error| {
-            format!(
-                "Save report {}: {error}. Choose a new filename if it already exists.",
-                path.display()
-            )
-        })?;
-    writeln!(file, "{text}").map_err(|error| format!("Write report {}: {error}", path.display()))
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+    fn report() -> Arc<ReportDocument> {
+        Arc::new(ReportDocument::from_value(json!({
+            "schema_version": 1, "mode": "analysis", "capture": "capture.pcap",
+            "min_severity": "low", "total_alerts": 3, "evaluated_alerts": 3,
+            "ignored_alerts": 0, "findings": [
+                {"occurrences": 2, "alert": {"rule_id": "TH-0001", "severity": "high", "src": "10.0.0.5", "title": "Repeated connection", "evidence": {"connections": 8}}},
+                {"occurrences": 1, "alert": {"rule_id": "TH-0002", "severity": "low", "src": "10.0.0.6", "title": "DNS observation", "evidence": {"domain": "example.test"}}}
+            ],
+            "enrichment": {"input_packets": 12, "output_packets": 12, "reassembled_datagrams": 0, "discarded_fragment_sets": 0,
+                "http": [{"method": "GET", "host": "example.test", "ja4h": "fingerprint"}], "tls": [], "dns": [], "warnings": []}
+        })).unwrap())
+    }
+
+    fn drain(desktop: &mut Desktop) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !desktop.workers.is_empty() {
+            desktop.poll();
+            assert!(
+                Instant::now() < deadline,
+                "background operation did not complete"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(desktop.error.is_none(), "{:?}", desktop.error);
+    }
+
+    #[test]
+    fn history_round_trip_keeps_findings_hidden_by_the_view_filter() {
+        let directory = std::env::temp_dir().join(format!(
+            "tracehound-desktop-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut desktop = Desktop::default();
+        desktop.document(report());
+        desktop.view_floor = Severity::High;
+        desktop.rebuild_filter();
+        drain(&mut desktop);
+        assert_eq!(desktop.filtered.len(), 1);
+        let document = desktop.result.clone().unwrap();
+        let root = directory.clone();
+        desktop.work(false, move || {
+            let store = ReportStore::new(root);
+            let entry = store.save(document.as_ref())?;
+            store
+                .open(&entry.id)
+                .map(|document| Work::Document(Arc::new(document)))
+        });
+        drain(&mut desktop);
+        assert_eq!(findings(desktop.result.as_deref(), 0).len(), 2);
+        assert_eq!(
+            enrichment(desktop.result.as_deref().unwrap(), 0)["input_packets"],
+            12
+        );
+        let entries = ReportStore::new(directory.clone()).list().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].findings, 2);
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn waiting_file_work_keeps_the_workspace_available() {
+        let (release, wait) = mpsc::channel();
+        let mut desktop = Desktop::default();
+        desktop.work(false, move || {
+            wait.recv().map_err(|e| e.to_string())?;
+            Ok(Work::Message("finished".into()))
+        });
+        let started = Instant::now();
+        desktop.poll();
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert!(desktop.busy());
+        assert!(!desktop.active());
+        release.send(()).unwrap();
+        drain(&mut desktop);
+        assert_eq!(desktop.notice.as_deref(), Some("finished"));
+        assert!(!desktop.busy());
+    }
+
+    #[test]
+    fn all_workspace_pages_and_evaluation_context_render_headlessly() {
+        let mut desktop = Desktop::default();
+        let document = report();
+        let ReportDocument::Analysis(analysis) = document.as_ref() else {
+            unreachable!()
+        };
+        let case = tracehound_eval::CaptureCase {
+            name: "Labelled capture".into(),
+            capture: "capture.pcap".into(),
+            expected: Vec::new(),
+            benign_hosts: Vec::new(),
+            min_severity: Severity::Low,
+        };
+        let alerts = analysis
+            .report
+            .findings
+            .iter()
+            .flat_map(|finding| std::iter::repeat_n(finding.alert.clone(), finding.occurrences))
+            .collect::<Vec<_>>();
+        let mut evaluated = tracehound_eval::evaluate(&case, &alerts).unwrap();
+        evaluated.enrichment = analysis.enrichment.clone();
+        let suite = SuiteReport::from_cases(vec![evaluated]);
+        let mut observed = analysis.clone();
+        observed.capture = "observation.pcap".into();
+        let sources = vec![
+            json!({"id":"labelled", "sha256":"0".repeat(64), "source_url":"https://example.test/labelled", "license":"test fixture"}),
+            json!({"id":"observation", "sha256":"1".repeat(64), "source_url":"https://example.test/observation", "license":"test fixture"}),
+        ];
+        let corpus = ReportDocument::Corpus(Box::new(store::CorpusReport {
+            schema_version: 1,
+            mode: "corpus_evaluation".into(),
+            sources: sources.clone(),
+            evaluation: suite.clone(),
+            observations: vec![observed],
+        }));
+        let serialized = serde_json::to_value(&corpus).unwrap();
+        assert_eq!(serialized["sources"], json!(sources));
+        assert_eq!(serialized["observations"].as_array().unwrap().len(), 1);
+        let corpus = ReportDocument::from_value(serialized).unwrap();
+        let context = egui::Context::default();
+        for document in [ReportDocument::Suite(Box::new(suite)), corpus] {
+            let captures = if matches!(&document, ReportDocument::Corpus(_)) {
+                2
+            } else {
+                1
+            };
+            desktop.document(Arc::new(document));
+            drain(&mut desktop);
+            for selected_case in 0..captures {
+                desktop.case = selected_case;
+                desktop.view_floor = current_floor(desktop.result.as_deref(), selected_case);
+                desktop.rebuild_filter();
+                drain(&mut desktop);
+                desktop.selected = Some(0);
+                if selected_case == 1 {
+                    assert!(evaluation(desktop.result.as_deref(), selected_case).is_none());
+                    assert!(
+                        case_title(desktop.result.as_deref().unwrap(), selected_case)
+                            .contains("observation.pcap")
+                    );
+                    assert_eq!(
+                        enrichment(desktop.result.as_deref().unwrap(), selected_case)
+                            ["input_packets"],
+                        12
+                    );
+                }
+                for page in [
+                    Page::Capture,
+                    Page::Suite,
+                    Page::Live,
+                    Page::Reports,
+                    Page::Settings,
+                ] {
+                    for result_page in [
+                        ResultPage::Findings,
+                        ResultPage::Protocols,
+                        ResultPage::Evaluation,
+                    ] {
+                        desktop.result_page = result_page;
+                        let output = context.run_ui(egui::RawInput::default(), |ui| {
+                            egui::CentralPanel::default().show(ui, |ui| {
+                                match page {
+                                    Page::Capture => desktop.capture_page(ui),
+                                    Page::Suite => desktop.suite_page(ui),
+                                    Page::Live => desktop.live_page(ui),
+                                    Page::Reports => desktop.reports_page(ui),
+                                    Page::Settings => desktop.settings_page(ui),
+                                }
+                                desktop.results(ui);
+                            });
+                        });
+                        assert!(!output.shapes.is_empty());
+                        output.drop_without_applying_deltas();
+                    }
+                }
+                drain(&mut desktop);
+                assert_eq!(desktop.filtered.len(), 2);
+            }
+        }
+    }
 }

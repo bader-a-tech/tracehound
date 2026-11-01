@@ -90,6 +90,109 @@ fn write_json(path: &Path, value: &Value) {
     fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
 }
 
+#[test]
+fn report_history_open_and_comparison_work_without_reanalysing_captures() {
+    let Some(sensor) = sensor() else {
+        return;
+    };
+    let directory = TestDirectory::new();
+    let capture = directory.join("office.pcap");
+    write_pcap(&capture, &benign_frames());
+    let history = directory.join("history");
+    let saved = directory.join("report.json");
+    let output = evaluator()
+        .arg("analyze")
+        .arg(&capture)
+        .arg("--sensor")
+        .arg(sensor)
+        .args(["--save-history", "--history-dir"])
+        .arg(&history)
+        .arg("--output")
+        .arg(&saved)
+        .output()
+        .unwrap();
+    assert_code(&output, 0);
+    let output = evaluator()
+        .args(["history", "--history-dir"])
+        .arg(&history)
+        .output()
+        .unwrap();
+    assert_code(&output, 0);
+    let entries: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(entries.len(), 1);
+    let output = evaluator().arg("open").arg(&saved).output().unwrap();
+    assert_code(&output, 0);
+    assert_eq!(report(&output)["mode"], "analysis");
+    let output = evaluator()
+        .arg("compare")
+        .arg(&saved)
+        .arg(&saved)
+        .output()
+        .unwrap();
+    assert_code(&output, 0);
+    let changes = report(&output);
+    assert_eq!(changes["added"], json!([]));
+    assert_eq!(changes["removed"], json!([]));
+    assert_eq!(changes["changed"], json!([]));
+}
+
+#[test]
+fn cached_corpus_outputs_reopen_with_provenance_and_unlabelled_cases() {
+    use sha2::{Digest, Sha256};
+    let Some(sensor) = sensor() else {
+        return;
+    };
+    let directory = TestDirectory::new();
+    let cache = directory.join("corpus");
+    fs::create_dir(&cache).unwrap();
+    let capture = cache.join("office.pcap");
+    write_pcap(&capture, &benign_frames());
+    let bytes = fs::read(&capture).unwrap();
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    for labelled in [true, false] {
+        let mut entry = json!({"id":"external-office","filename":"office.pcap","url":"https://example.test/office.pcap","source_url":"https://example.test/source","sha256":digest,"bytes":bytes.len(),"license":"Test capture","description":"Independent normal wire fixture","classification":"fixture","min_severity":"low"});
+        if labelled {
+            entry["expected"] = json!([]);
+        }
+        let manifest = directory.join(format!("manifest-{labelled}.json"));
+        write_json(&manifest, &json!({"schema_version":1,"captures":[entry]}));
+        let saved = directory.join(format!("corpus-{labelled}.json"));
+        let history = directory.join("history");
+        let output = evaluator()
+            .arg("corpus")
+            .arg(&cache)
+            .arg("--manifest")
+            .arg(&manifest)
+            .arg("--sensor")
+            .arg(&sensor)
+            .arg("--json")
+            .arg("--output")
+            .arg(&saved)
+            .args(["--save-history", "--history-dir"])
+            .arg(&history)
+            .output()
+            .unwrap();
+        assert_code(&output, 0);
+        let output = evaluator().arg("open").arg(&saved).output().unwrap();
+        assert_code(&output, 0);
+        let reopened = report(&output);
+        assert_eq!(reopened["sources"][0]["sha256"], digest);
+        if labelled {
+            assert_eq!(reopened["evaluation"]["summary"]["captures"], 1);
+        } else {
+            assert_eq!(reopened["observations"].as_array().unwrap().len(), 1);
+            assert!(reopened["evaluation"]["summary"]["precision"].is_null());
+        }
+        let output = evaluator()
+            .arg("compare")
+            .arg(&saved)
+            .arg(&saved)
+            .output()
+            .unwrap();
+        assert_code(&output, 0);
+    }
+}
+
 // Internet checksums use big-endian 16-bit words and one's-complement addition.
 fn checksum(bytes: &[u8]) -> u16 {
     let mut sum = 0u32;

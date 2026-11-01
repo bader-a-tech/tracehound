@@ -1,27 +1,34 @@
 use serde::Serialize;
 use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use tracehound_eval::runtime::{
-    validate_capture, CaptureJob, CaptureReport, JobReport, SensorOptions,
-};
-use tracehound_eval::{EvaluationReport, Severity, Suite};
+use tracehound_eval::runtime::{CaptureJob, CaptureReport, JobReport, SensorOptions};
+use tracehound_eval::suite::{SuiteJob, SuiteReport};
+use tracehound_eval::Severity;
+mod commands;
 
 const HELP: &str = "tracehound-eval — analyse captures and check labelled detection expectations
 
 USAGE
   tracehound-eval analyze CAPTURE [OPTIONS]
   tracehound-eval evaluate SUITE.json [OPTIONS]
+  tracehound-eval corpus DIRECTORY [OPTIONS] [--manifest PATH]
+  tracehound-eval history [--history-dir DIRECTORY]
+  tracehound-eval open REPORT.json
+  tracehound-eval compare BEFORE.json AFTER.json
+  tracehound-eval feed-update NEW-FEED.json
 
 OPTIONS
   --sensor PATH       Tracehound executable (default: tracehound on PATH)
   --rules DIR         Custom Tracehound rule directory
   --home-nets CIDRS   Comma-separated internal network prefixes
+  --pair-feed PATH    Local source-attributed TLS pair feed (opt-in)
+  --save-history      Save this report in private local history
+  --history-dir DIR   Use a custom report history directory
   --min-severity LEVEL  Analysis reporting floor (default: low; evaluate uses each case)
   --json              Write the complete machine-readable report to stdout
   --output PATH       Also save a JSON report; refuses to overwrite an existing file
@@ -39,6 +46,7 @@ Exit codes: 0 success, 1 detection mismatch, 2 input or execution error.
 enum Mode {
     Analyze,
     Evaluate,
+    Corpus,
 }
 
 struct Options {
@@ -47,6 +55,10 @@ struct Options {
     sensor: OsString,
     rules: Option<PathBuf>,
     home_nets: Option<OsString>,
+    pair_feed: Option<PathBuf>,
+    manifest: Option<PathBuf>,
+    save_history: bool,
+    history_dir: Option<PathBuf>,
     min_severity: Severity,
     json: bool,
     output: Option<PathBuf>,
@@ -59,6 +71,7 @@ fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, St
     let mode = match args.next().as_deref() {
         Some(s) if s == "analyze" => Mode::Analyze,
         Some(s) if s == "evaluate" => Mode::Evaluate,
+        Some(s) if s == "corpus" => Mode::Corpus,
         _ => {
             return Err(
                 "choose analyze CAPTURE or evaluate SUITE.json; use --help for usage".into(),
@@ -71,6 +84,10 @@ fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, St
         sensor: "tracehound".into(),
         rules: None,
         home_nets: None,
+        pair_feed: None,
+        manifest: None,
+        save_history: false,
+        history_dir: None,
         min_severity: Severity::Low,
         json: false,
         output: None,
@@ -90,6 +107,10 @@ fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, St
                 opts.json = true;
                 continue;
             }
+            if arg == "--save-history" {
+                opts.save_history = true;
+                continue;
+            }
             let value = args
                 .next()
                 .ok_or_else(|| format!("{} requires a value", arg.to_string_lossy()))?;
@@ -103,6 +124,9 @@ fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, St
                 Some("--sensor") => opts.sensor = value,
                 Some("--rules") => opts.rules = Some(value.into()),
                 Some("--home-nets") => opts.home_nets = Some(value),
+                Some("--pair-feed") => opts.pair_feed = Some(value.into()),
+                Some("--manifest") => opts.manifest = Some(value.into()),
+                Some("--history-dir") => opts.history_dir = Some(value.into()),
                 Some("--output") => opts.output = Some(value.into()),
                 Some("--min-severity") => {
                     opts.min_severity = value.to_str().ok_or("severity must be UTF-8")?.parse()?;
@@ -143,32 +167,10 @@ fn parse_options(args: impl IntoIterator<Item = OsString>) -> Result<Options, St
     if opts.mode == Mode::Evaluate && severity_set {
         return Err("evaluate uses min_severity from each capture case".into());
     }
+    if opts.mode != Mode::Corpus && opts.manifest.is_some() {
+        return Err("--manifest applies to corpus only".into());
+    }
     Ok(opts)
-}
-
-#[derive(Default, Serialize)]
-struct SuiteSummary {
-    captures: usize,
-    passed: usize,
-    failed: usize,
-    expected_total: usize,
-    matched_expectations: usize,
-    missed_expectations: usize,
-    unique_findings: usize,
-    matched_findings: usize,
-    unexpected_findings: usize,
-    benign_findings: usize,
-    precision: Option<f64>,
-    recall: Option<f64>,
-}
-
-#[derive(Serialize)]
-struct SuiteOutput {
-    schema_version: u32,
-    mode: &'static str,
-    passed: bool,
-    summary: SuiteSummary,
-    captures: Vec<EvaluationReport>,
 }
 
 fn main() {
@@ -183,11 +185,14 @@ fn main() {
     }
     let interrupted = Arc::new(AtomicBool::new(false));
     let signal = Arc::clone(&interrupted);
-    let outcome = parse_options(args).and_then(|opts| {
+    let outcome = (|| {
         ctrlc::set_handler(move || signal.store(true, Ordering::Release))
             .map_err(|e| format!("install interrupt handler: {e}"))?;
-        run(opts, &interrupted)
-    });
+        if let Some(outcome) = commands::run(&args) {
+            return outcome;
+        }
+        run(parse_options(args)?, &interrupted)
+    })();
     match outcome {
         Ok(code) => std::process::exit(if interrupted.load(Ordering::Acquire) {
             130
@@ -228,10 +233,16 @@ fn wants_help(args: &[OsString]) -> bool {
                     | "--min-severity"
                     | "--timeout"
                     | "--max-alerts"
+                    | "--pair-feed"
+                    | "--manifest"
+                    | "--history-dir"
             )
         ) {
             value = true;
-        } else if arg.to_string_lossy().starts_with('-') && arg != "--json" {
+        } else if arg.to_string_lossy().starts_with('-')
+            && arg != "--json"
+            && arg != "--save-history"
+        {
             return false;
         }
     }
@@ -261,72 +272,22 @@ fn run(opts: Options, interrupted: &AtomicBool) -> Result<i32, String> {
             Ok(0)
         }
         Mode::Evaluate => {
-            let bytes = fs::read(&opts.input)
-                .map_err(|e| format!("read suite {}: {e}", opts.input.display()))?;
-            let suite: Suite =
-                serde_json::from_slice(&bytes).map_err(|e| format!("invalid suite: {e}"))?;
-            suite.validate()?;
-            let base = opts.input.parent().unwrap_or_else(|| Path::new("."));
-            // Validate all input paths before executing any capture. Paths are
-            // passed as process arguments, never interpreted by a shell.
-            let paths: Vec<PathBuf> = suite
-                .captures
-                .iter()
-                .map(|case| base.join(&case.capture))
-                .collect();
-            for path in &paths {
-                validate_capture(path).map_err(|e| e.to_string())?;
-            }
-            let mut reports = Vec::with_capacity(suite.captures.len());
-            for (case, path) in suite.captures.iter().zip(paths.iter()) {
+            let job = SuiteJob::start(opts.input.clone(), sensor_options(&opts))?;
+            let output = loop {
                 if interrupted.load(Ordering::Acquire) {
-                    return Err("analysis cancelled".into());
+                    job.cancel();
                 }
-                let job = CaptureJob::evaluate(path.clone(), sensor_options(&opts), case.clone())
-                    .map_err(|e| format!("case {}: {e}", case.name))?;
-                let result = wait_for_job(&job, interrupted)
-                    .map_err(|e| format!("case {}: {e}", case.name))?;
-                let JobReport::Evaluation(report) = result.as_ref() else {
-                    return Err("evaluation returned an unexpected report type".into());
-                };
-                reports.push(report.as_ref().clone());
-            }
-            let mut summary = SuiteSummary {
-                captures: reports.len(),
-                ..Default::default()
+                if let Some(result) = job.try_result() {
+                    break result?;
+                }
+                thread::sleep(Duration::from_millis(10));
             };
-            for report in &reports {
-                summary.passed += usize::from(report.passed);
-                summary.failed += usize::from(!report.passed);
-                summary.expected_total += report.summary.expected_total;
-                summary.matched_expectations += report.summary.matched_expectations;
-                summary.missed_expectations += report.summary.missed_expectations;
-                summary.unique_findings += report.summary.unique_findings;
-                summary.matched_findings += report.summary.matched_findings;
-                summary.unexpected_findings += report.summary.unexpected_findings;
-                summary.benign_findings += report.summary.benign_findings;
-            }
-            summary.precision = ratio(summary.matched_findings, summary.unique_findings);
-            summary.recall = ratio(summary.matched_expectations, summary.expected_total);
-            let passed = summary.failed == 0;
-            let output = SuiteOutput {
-                schema_version: 1,
-                mode: "evaluation_suite",
-                passed,
-                summary,
-                captures: reports,
-            };
-            let text = evaluation_text(&output);
-            emit_report(&opts, &output, &text)?;
-            Ok(if passed { 0 } else { 1 })
+            emit_report(&opts, output.as_ref(), &evaluation_text(&output))?;
+            Ok(if output.passed { 0 } else { 1 })
         }
+        Mode::Corpus => run_corpus(&opts, interrupted),
     }
 }
-
-fn ratio(n: usize, d: usize) -> Option<f64> {
-    (d != 0).then(|| n as f64 / d as f64)
-}
-
 fn wait_for_job(job: &CaptureJob, interrupted: &AtomicBool) -> Result<Arc<JobReport>, String> {
     loop {
         if interrupted.load(Ordering::Acquire) {
@@ -344,6 +305,7 @@ fn sensor_options(opts: &Options) -> SensorOptions {
         executable: opts.sensor.clone(),
         rules: opts.rules.clone(),
         home_nets: opts.home_nets.clone(),
+        pair_feed: opts.pair_feed.clone(),
         timeout: opts.timeout,
         max_alerts: opts.max_alerts,
     }
@@ -352,16 +314,71 @@ fn emit_report(opts: &Options, report: &impl Serialize, text: &str) -> Result<()
     let json =
         serde_json::to_string_pretty(report).map_err(|e| format!("serialize report: {e}"))?;
     if let Some(path) = &opts.output {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-            .map_err(|e| format!("create report {}: {e}", path.display()))?;
-        writeln!(file, "{json}").map_err(|e| format!("write report {}: {e}", path.display()))?;
+        tracehound_eval::store::write_new(path, report)?;
+    }
+    if opts.save_history {
+        let store = opts
+            .history_dir
+            .clone()
+            .map(tracehound_eval::store::ReportStore::new)
+            .unwrap_or_else(tracehound_eval::store::ReportStore::default_location);
+        let entry = store.save(report)?;
+        eprintln!("Saved report in local history: {}", entry.id);
     }
     let mut stdout = io::stdout().lock();
     writeln!(stdout, "{}", if opts.json { &json } else { text })
         .map_err(|e| format!("write report: {e}"))
+}
+
+fn run_corpus(opts: &Options, interrupted: &AtomicBool) -> Result<i32, String> {
+    use tracehound_eval::corpus::{fetch_verified_cancellable, CorpusManifest};
+    let manifest = opts
+        .manifest
+        .as_deref()
+        .map(CorpusManifest::load)
+        .unwrap_or_else(CorpusManifest::builtin)?;
+    if interrupted.load(Ordering::Acquire) {
+        return Err("corpus operation cancelled".into());
+    }
+    let captures = fetch_verified_cancellable(&manifest, &opts.input, &|| {
+        interrupted.load(Ordering::Acquire)
+    })?;
+    let mut reports = Vec::new();
+    let mut observations = Vec::new();
+    for capture in &captures {
+        if interrupted.load(Ordering::Acquire) {
+            return Err("corpus operation cancelled".into());
+        }
+        let mut options = sensor_options(opts);
+        if opts.home_nets.is_none() {
+            options.home_nets = capture.home_nets.as_ref().map(OsString::from);
+        }
+        let job = if let Some(case) = &capture.case {
+            CaptureJob::evaluate(capture.path.clone(), options, case.clone())
+        } else {
+            CaptureJob::analyze(capture.path.clone(), options, opts.min_severity)
+        }
+        .map_err(|e| e.to_string())?;
+        match wait_for_job(&job, interrupted)?.as_ref() {
+            JobReport::Evaluation(report) => reports.push(report.as_ref().clone()),
+            JobReport::Analysis(report) => observations.push(report.clone()),
+        }
+    }
+    let evaluation = SuiteReport::from_cases(reports);
+    let report = serde_json::json!({"schema_version":1,"mode":"corpus_evaluation","sources":captures,"evaluation":evaluation,"observations":observations});
+    let mut text = if evaluation.captures.is_empty() {
+        "No labelled captures: accuracy is unknown.\n".into()
+    } else {
+        evaluation_text(&evaluation)
+    };
+    if !observations.is_empty() {
+        text.push_str(&format!(
+            "\n{} unlabelled capture(s) analysed without accuracy metrics.\n",
+            observations.len()
+        ));
+    }
+    emit_report(opts, &report, &text)?;
+    Ok(if evaluation.passed { 0 } else { 1 })
 }
 
 fn safe(value: &str) -> String {
@@ -420,7 +437,7 @@ fn analysis_text(output: &CaptureReport) -> String {
     text
 }
 
-fn evaluation_text(output: &SuiteOutput) -> String {
+fn evaluation_text(output: &SuiteReport) -> String {
     let mut text = format!(
         "{}: {} capture(s) passed, {} failed.\n",
         if output.passed { "PASS" } else { "FAIL" },
