@@ -1192,7 +1192,7 @@ impl Desktop {
                                 severity_color(ui, alert.severity),
                                 format!("{} · {} · {}", alert.severity, alert.rule_id, alert.title),
                             );
-                            ui.label(format!("{} → {}", address(alert.src), address(alert.dst)));
+                            ui.label(format!("{} -> {}", address(alert.src), address(alert.dst)));
                         }
                     });
             });
@@ -1231,7 +1231,7 @@ impl Desktop {
                         {
                             self.rust_selected = Some(index);
                         }
-                        ui.label(format!("{} → {}", address(alert.src), address(alert.dst)));
+                        ui.label(format!("{} -> {}", address(alert.src), address(alert.dst)));
                     }
                 });
             if let Some(alert) = self
@@ -1272,7 +1272,7 @@ impl Desktop {
                             .selectable_label(
                                 self.rust_flow == Some(index),
                                 format!(
-                                    "{} → {} · {}",
+                                    "{} -> {} · {}",
                                     flow.client,
                                     flow.server,
                                     if flow.protocol == 6 { "TCP" } else { "UDP" }
@@ -1411,7 +1411,7 @@ impl Desktop {
             });
         }
         if let Some((before, after, comparison)) = &self.comparison {
-            ui.strong(format!("{} → {}", before, after));
+            ui.strong(format!("{} -> {}", before, after));
             ui.label(format!(
                 "{} added · {} removed · {} changed · {} unchanged",
                 comparison.added.len(),
@@ -1666,7 +1666,7 @@ impl Desktop {
                         let index = self.filtered[position];
                         let finding = &values[index];
                         let text = format!(
-                            "{} · {} · {} occurrence(s)\n{}\n{} → {}",
+                            "{} · {} · {} occurrence(s)\n{}\n{} -> {}",
                             finding.alert.severity.to_string().to_uppercase(),
                             finding.alert.rule_id,
                             finding.occurrences,
@@ -2050,7 +2050,7 @@ fn evaluation_details(ui: &mut egui::Ui, report: &EvaluationReport) {
         |ui| {
             for entry in &report.missed_expectations {
                 ui.label(format!(
-                    "{} · {} → {}",
+                    "{} · {} -> {}",
                     entry.rule_id,
                     entry.src,
                     address(entry.dst)
@@ -2066,7 +2066,7 @@ fn evaluation_details(ui: &mut egui::Ui, report: &EvaluationReport) {
         |ui| {
             for entry in &report.matched_expectations {
                 ui.label(format!(
-                    "{} · {} → {}",
+                    "{} · {} -> {}",
                     entry.rule_id,
                     entry.src,
                     address(entry.dst)
@@ -2085,7 +2085,7 @@ fn evaluation_details(ui: &mut egui::Ui, report: &EvaluationReport) {
 }
 fn comparison_finding(ui: &mut egui::Ui, symbol: &str, case: Option<&str>, finding: &Finding) {
     ui.label(format!(
-        "{symbol} {}{} · {} · {} → {} · {} occurrence(s)",
+        "{symbol} {}{} · {} · {} -> {} · {} occurrence(s)",
         case.map(|name| format!("{name}: ")).unwrap_or_default(),
         finding.alert.rule_id,
         finding.alert.title,

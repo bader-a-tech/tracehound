@@ -20,6 +20,12 @@ packets. Live analysis uses the same Rust engine with an installed `dumpcap`
 capture helper. Optional Windows socket ownership associates fresh local traffic
 with a process when a matching native snapshot is available.
 
+![Native Tracehound host investigation with an original packet preview](docs/screenshots/investigation-linux.png)
+
+*The native Linux application investigating an independently published periodic
+connection capture, with ranked hosts, decoded TLS events, and a verified original
+frame. [Screenshot provenance and reproduction](docs/screenshots/README.md).*
+
 Read the [capture guide](docs/capture-evaluation.md),
 [investigation walkthrough](docs/investigations.md),
 [downloads and installation guide](docs/release.md), and

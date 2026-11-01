@@ -699,7 +699,7 @@ impl InvestigationUi {
             for event in &self.timeline {
                 let title=format!("{} · {}",utc(event.timestamp_ns),event.kind);
                 if ui.selectable_label(self.selected_event==Some(event.id),RichText::new(title).strong()).clicked(){self.selected_event=Some(event.id);}
-                ui.label(&event.summary);
+                ui.label(event.summary.replace('→', "->").replace('↔', "<->"));
                 ui.small(match event.evidence_kind.as_str(){"packet"=>"Observed in captured packet bytes","detector_evidence"=>"Detector result with supporting packet references",_=>"Related context; this association does not establish causation"});
                 if event.packet_refs_truncated{ui.small("This event's packet-reference list is incomplete; browse host packets for the remaining traffic.");}
                 ui.horizontal_wrapped(|ui|{for reference in event.packets.iter().take(8){if ui.small_button(format!("Packet {}",reference.number)).clicked(){packet=Some(reference.number);}}if event.packets.len()>8{ui.small(format!("{} supporting packets total",event.packets.len()));}});
@@ -775,7 +775,7 @@ impl InvestigationUi {
             .show(ui, |ui| {
                 for flow in &self.connections {
                     ui.strong(format!(
-                        "{} {} ↔ {}",
+                        "{} {} <-> {}",
                         protocol(flow.protocol),
                         std::net::SocketAddr::new(flow.src, flow.src_port),
                         std::net::SocketAddr::new(flow.dst, flow.dst_port)
