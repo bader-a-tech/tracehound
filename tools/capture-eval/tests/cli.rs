@@ -501,10 +501,13 @@ fn execution_guards_reject_timeout_malformed_output_limits_and_sensor_failure() 
 use std::io::Write;
 
 fn main() {
-    let capture = std::env::args_os().nth(2).expect("capture argument");
-    let mode = std::fs::read(capture).expect("read fixture")[0];
+    let capture = std::path::PathBuf::from(std::env::args_os().nth(2).expect("capture argument"));
+    let mode = std::fs::read(&capture).expect("read fixture")[0];
     match mode {
-        b't' => std::thread::sleep(std::time::Duration::from_secs(30)),
+        b't' => {
+            std::fs::write(capture.with_extension("started"), std::process::id().to_string()).unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(30));
+        }
         b'j' => println!("malformed JSON"),
         b'm' => {
             for _ in 0..3 {
@@ -569,5 +572,94 @@ fn main() {
                 "timeout waited for the sensor's 30-second sleep"
             );
         }
+    }
+
+    #[cfg(unix)]
+    {
+        use std::process::Stdio;
+        use std::time::{Duration, Instant};
+
+        let capture = directory.join("interrupted capture.pcap");
+        let marker = capture.with_extension("started");
+        let report_path = directory.join("interrupted report.json");
+        fs::write(&capture, b"t").unwrap();
+        let mut child = evaluator()
+            .arg("analyze")
+            .arg(&capture)
+            .arg("--sensor")
+            .arg(&executable)
+            .args(["--timeout", "0", "--json", "--output"])
+            .arg(&report_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let startup = Instant::now();
+        let sensor_pid: u32 = loop {
+            let pid = fs::read_to_string(&marker)
+                .ok()
+                .and_then(|contents| contents.parse::<u32>().ok())
+                .filter(|pid| *pid > 0);
+            if let Some(pid) = pid {
+                break pid;
+            }
+            if let Some(status) = child.try_wait().unwrap() {
+                panic!("evaluator exited before the interrupt fixture started: {status}");
+            }
+            if startup.elapsed() > Duration::from_secs(5) {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("interrupt fixture did not start");
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        let evaluator_pid = child.id().to_string();
+        let signal = Command::new("kill")
+            .args(["-s", "INT", &evaluator_pid])
+            .output()
+            .expect("send SIGINT to this test's evaluator process");
+        if !signal.status.success() {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = Command::new("kill")
+                .args(["-s", "KILL", &sensor_pid.to_string()])
+                .output();
+            panic!(
+                "could not interrupt evaluator: {}",
+                String::from_utf8_lossy(&signal.stderr)
+            );
+        }
+        let stopping = Instant::now();
+        while child.try_wait().unwrap().is_none() {
+            if stopping.elapsed() > Duration::from_secs(5) {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = Command::new("kill")
+                    .args(["-s", "KILL", &sensor_pid.to_string()])
+                    .output();
+                panic!("evaluator did not finish cleaning up after SIGINT");
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let output = child.wait_with_output().unwrap();
+        let sensor_alive = Command::new("kill")
+            .args(["-0", &sensor_pid.to_string()])
+            .output()
+            .expect("check the fixture sensor was reaped");
+        if sensor_alive.status.success() {
+            let _ = Command::new("kill")
+                .args(["-s", "KILL", &sensor_pid.to_string()])
+                .output();
+        }
+        assert_code(&output, 130);
+        assert!(
+            output.stdout.is_empty(),
+            "interrupted analysis printed a success report"
+        );
+        assert!(!report_path.exists());
+        assert!(
+            !sensor_alive.status.success(),
+            "SIGINT left the sensor process running"
+        );
     }
 }

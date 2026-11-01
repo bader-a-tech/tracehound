@@ -1,7 +1,9 @@
 # Analyse and evaluate your captures
 
-`tracehound-eval` is a Rust command-line tool and reusable library for analysing
-user-supplied PCAP and PCAPNG files with the Tracehound sensor. It has two workflows:
+`tracehound-eval` is a Rust command-line tool and reusable backend for analysing
+user-supplied PCAP and PCAPNG files with the Tracehound sensor. An optional native
+Rust desktop application uses the same background-job backend. The CLI has two
+workflows:
 
 - **Analyse a capture:** collect findings and evidence without needing labels.
 - **Evaluate labelled captures:** compare the findings with your expected
@@ -13,8 +15,9 @@ locally. Real captures remain outside version control, as described in the
 
 ## Build
 
-Install a supported Rust toolchain and the Tracehound sensor. From the repository
-root, build both executables:
+The CLI and backend require Rust 1.85 or newer. The optional desktop GUI requires
+Rust 1.95 or newer. Install a supported Rust toolchain and the Tracehound sensor.
+From the repository root, build the CLI and sensor:
 
 ```sh
 go build -o bin/tracehound ./cmd/tracehound
@@ -29,6 +32,42 @@ otherwise use its full path.
 
 The tool runs the Go sensor as a child process. `--sensor` selects that executable;
 when omitted, it looks for `tracehound` on `PATH`. No Python is required.
+
+## Desktop application
+
+Build and launch the optional native GUI from the repository root:
+
+```sh
+cargo run --release --locked --features gui --bin tracehound-desktop --manifest-path tools/capture-eval/Cargo.toml
+```
+
+The built executable is
+`tools/capture-eval/target/release/tracehound-desktop`, with an `.exe` suffix on
+Windows. GUI dependencies are optional; ordinary CLI builds do not include them.
+
+Drop your PCAP or PCAPNG file into the window, or paste its full path, then choose
+**Analyse capture**. The application looks for the Tracehound sensor beside the
+desktop executable and in checkout build locations such as `bin`, then falls back
+to `PATH`. Set its full path in **Analysis settings** if needed. That panel also
+provides the reporting severity, timeout, alert limit, custom rules, and internal
+network settings.
+
+Analysis runs in the background. The window shows whether it is starting,
+analysing, cancelling, completed, cancelled, timed out, or failed. The live alert
+record count measures sensor findings read, not packets processed or a completion
+percentage. **Cancel analysis** stops the job without marking a partial result
+complete. Closing the window during analysis requests cancellation and waits for
+the sensor to stop; an active export is allowed to finish before closing.
+
+After analysis, search findings by host, domain, rule, or evidence, filter by
+severity, and select a finding to inspect its explanation and measurements. The
+analysis reporting floor determines which severities were collected; a view
+filter cannot recover lower-severity findings excluded from the report.
+
+Use **Export report** to save the complete analysis as JSON. View filters do not
+change the exported findings. Export preserves existing files, so choose a new
+filename when a report already exists. This desktop version analyses one capture
+at a time; labelled suites remain available through the CLI.
 
 ## Analyse a capture
 
@@ -143,17 +182,43 @@ Exit codes are suitable for CI and batch scripts:
 | `0` | Analysis completed, or every labelled capture passed |
 | `1` | Labelled evaluation found missed or unexpected detections |
 | `2` | Invalid input, unavailable sensor, sensor failure, timeout, or report error |
+| `130` | Interrupted analysis, after sensor cancellation and cleanup |
 
 The default timeout is 300 seconds per capture. Set `--timeout 0` to disable it or
 choose a larger number of seconds for large captures. `--max-alerts` limits the
 number of sensor alerts collected per capture and defaults to 1,000,000. Exceeding
 a limit produces an error rather than a partial success report.
 
-## Library and GUI integration
+Ctrl-C requests cancellation, waits for the sensor process to stop, and exits
+with code `130`. On Unix, SIGTERM and SIGHUP follow the same cleanup path. An
+interrupted analysis does not write a completed report.
 
-The crate exposes analysis and evaluation functions separately from the CLI. Its
-versioned JSON reports include findings and evidence that a future GUI can use
-for investigation and export. There is no GUI in this crate yet.
+## Reusable background-job backend
+
+`tracehound_eval::runtime::CaptureJob` owns execution for both the CLI and desktop
+application. `CaptureJob::analyze` starts an unlabelled capture analysis;
+`CaptureJob::evaluate` starts a labelled case. Each returns an immediately claimed
+job while its worker launches the sensor, parses output, and assembles the report.
+
+- `snapshot()` returns cheap lifecycle metadata, elapsed milliseconds, alert
+  records read, output bytes read, and any terminal error. Output bytes describe
+  the sensor's JSONL stream, not capture bytes or packet progress.
+- `cancel()` requests cancellation without blocking the caller. Repeated
+  cancellation is safe; a terminal job remains terminal.
+- `try_result()` polls for a completed result without waiting.
+- `wait()` blocks until the job finishes and returns its report or a typed error.
+
+Terminal reports are shared through `Arc`, so polling does not clone the complete
+finding list. Execution failures, timeouts, and cancellation remain distinct from
+a completed labelled evaluation whose detections do not match expectations. The
+worker kills and reaps its sensor and joins output readers before publishing a
+terminal result. Dropping an active job requests cancellation without blocking;
+applications must keep running until cleanup completes before exiting. The
+desktop application handles that close sequence.
+
+The existing `analyze` and `evaluate` functions remain available when a caller
+already has sensor alerts. Versioned JSON reports retain findings and evidence
+for investigation and export.
 
 ## Development checks
 
@@ -163,7 +228,17 @@ cargo clippy --locked --manifest-path tools/capture-eval/Cargo.toml --all-target
 cargo test --locked --manifest-path tools/capture-eval/Cargo.toml --all-targets
 ```
 
+Check and link the optional GUI without opening a window:
+
+```sh
+cargo clippy --locked --manifest-path tools/capture-eval/Cargo.toml --all-targets --features gui -- -D warnings
+cargo build --locked --manifest-path tools/capture-eval/Cargo.toml --features gui --bin tracehound-desktop
+```
+
 The CLI integration tests use `TRACEHOUND_TEST_SENSOR` to locate a built sensor.
 Set it to the absolute executable path to run those checks locally. CI builds the
 sensor and runs these checks on Linux, macOS, and Windows. Its packet fixtures are
 generated by the Rust tests and do not depend on Tracehound's demo generator.
+Background-job tests exercise progress, cancellation, process cleanup, and
+terminal outcomes. CI also checks and builds the GUI on all three operating
+systems without launching it.
