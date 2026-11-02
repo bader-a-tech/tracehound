@@ -7,8 +7,15 @@ while packet bytes remain in the original capture.
 
 ## Create and open a case
 
-In the desktop application, open a capture and choose the investigation page.
-Choose a new database path and build the index. Analysis and indexing run in a
+In the desktop application, choose or drop a capture on **Analyse**, then click
+**Investigate this capture**. You can start an investigation without running a
+separate analysis first. The app carries the capture to the investigation form
+and suggests a `.thcase` filename when no destination has been chosen.
+
+Review the destination and click **Create investigation**. An existing case is
+never overwritten; choose a new name if the suggested path already exists.
+The **Investigate hosts** tab also lets you select a source or open a saved case
+directly. Its setup form is visible on first use. Analysis and indexing run in a
 background worker; cancellation removes the incomplete database. Keep the original
 capture alongside the case so packet evidence remains available.
 

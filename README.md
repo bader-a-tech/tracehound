@@ -1,111 +1,169 @@
-# tracehound
+# Tracehound
 
-A local network investigation tool that connects suspicious traffic to its original
-packets, explains the evidence, and exports a case others can review.
+**Investigate a packet capture. Understand what stands out. Show the packets behind it.**
 
-[![ci](https://github.com/bader-a-tech/tracehound/actions/workflows/ci.yml/badge.svg)](https://github.com/bader-a-tech/tracehound/actions/workflows/ci.yml)
+Tracehound is a desktop app for investigating your own PCAP and PCAPNG files.
+Find hosts worth a closer look, understand why traffic was flagged, and export
+a case someone else can review. File analysis runs locally on your computer.
+
+**[Download the app](https://github.com/bader-a-tech/tracehound/releases/latest)**
+· [First investigation](#your-first-investigation)
+· [User guide](docs/investigations.md)
+· [Get help](https://github.com/bader-a-tech/tracehound/issues)
+
+[![CI](https://github.com/bader-a-tech/tracehound/actions/workflows/ci.yml/badge.svg)](https://github.com/bader-a-tech/tracehound/actions/workflows/ci.yml)
 [![Rust backend](https://github.com/bader-a-tech/tracehound/actions/workflows/evaluate.yml/badge.svg)](https://github.com/bader-a-tech/tracehound/actions/workflows/evaluate.yml)
-[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Open your own PCAP or PCAPNG, investigate a host, follow a finding to an original
-frame, and open that traffic in Wireshark. The native desktop application and CLI
-share a Rust analysis engine. They detect periodic application sessions, DNS tunnels, scans,
-large outbound transfers, and unusual TLS fingerprints, with measurements and
-MITRE ATT&CK mappings attached to findings.
+![Tracehound showing ranked hosts, a traffic timeline, and a verified original packet](docs/screenshots/investigation-linux.png)
 
-Investigations use a disk-backed index rather than loading the entire capture
-into the GUI. Compare equal capture windows, search host timelines, inspect DNS,
-TLS, cleartext HTTP and peer-protocol facts, and export standalone HTML, JSON, or selected original
-packets. Live analysis uses the same Rust engine with an installed `dumpcap`
-capture helper. Optional Windows socket ownership associates fresh local traffic
-with a process when a matching native snapshot is available.
+*The actual native app investigating a publicly published controlled capture.
+Addresses shown belong to that capture. [Screenshot source and reproduction](docs/screenshots/README.md).*
 
-![Native Tracehound host investigation with an original packet preview](docs/screenshots/investigation-linux.png)
+## Download and open
 
-*The native Linux application investigating an independently published periodic
-connection capture, with ranked hosts, decoded TLS events, and a verified original
-frame. [Screenshot provenance and reproduction](docs/screenshots/README.md).*
+Open the [latest release](https://github.com/bader-a-tech/tracehound/releases/latest)
+and choose the installer for your computer. Version numbers appear before the
+filename endings below.
 
-Read the [capture guide](docs/capture-evaluation.md),
-[investigation walkthrough](docs/investigations.md),
-[downloads and installation guide](docs/release.md), and
-[independent validation results](docs/validation-corpus.md).
+| Your computer | Choose the file ending in | Install |
+| --- | --- | --- |
+| Windows x64 | `windows-amd64-installer-unsigned.msi` | Run the MSI, then open Tracehound from Start |
+| Mac with Apple silicon | `darwin-arm64-unsigned.dmg` | Open the DMG and drag Tracehound to Applications |
+| Mac with Intel processor | `darwin-amd64-unsigned.dmg` | Open the DMG and drag Tracehound to Applications |
+| Ubuntu/Debian, x64 | `linux-amd64.deb` | Install with your package manager, then open Tracehound |
+| Ubuntu/Debian, ARM64 | `linux-arm64.deb` | Install with your package manager, then open Tracehound |
 
-Findings identify traffic patterns for investigation. The extended validation
-includes a publisher-verified normal P2P capture that currently triggers periodic
-connection findings; its observed benign alert rates are published alongside the
-positive tests. Review evidence and calibrate policy for your network.
+Portable ZIP/TAR.GZ bundles are also available. Keep their extracted files together.
+Opening an existing capture needs no packet driver, Wireshark installation, or
+separate server. Installers are currently unsigned. Check the release's
+`SHA256SUMS.txt` and read the [installation guide](docs/release.md) for verification,
+platform requirements, and signing status. Linux packages target glibc 2.39 or
+newer; macOS packages are built/tested on macOS 15.
 
----
+## Your first investigation
 
-## Install
+Bring a PCAP or PCAPNG you are allowed to inspect. No labels or special capture
+format are required.
 
-Download the desktop application or portable bundle for Windows, macOS, or Linux
-from the [latest release](https://github.com/bader-a-tech/tracehound/releases/latest).
-Releases include SHA-256 checksums, source notices, and installation instructions.
-Installers are currently unsigned; the [release guide](docs/release.md) describes
-verification and the signing status of each format.
+1. **Open a capture.** Launch Tracehound and use **Browse…** on the **Analyse**
+   page, or drop the file into the window. **Analyse capture** gives a quick
+   findings report.
+2. **Investigate a host.** Choose **Investigate this capture**, confirm a new
+   investigation file, and click **Create investigation**. Select a host to
+   explore its **Timeline**, **Connections**, and **Packets**. You can also
+   start from the **Investigate hosts** tab.
+3. **Verify and share.** Follow a finding or timeline event to a **Packet N**
+   reference, then **Verify and inspect** the original frame. Expand **Export
+   this host investigation** to save an HTML/JSON bundle. The HTML opens in a
+   browser without Tracehound; including packet bytes is an explicit option.
 
-```bash
-sha256sum -c SHA256SUMS.txt
+The app keeps the original capture intact and stores the investigation separately.
+Keep both files if you want to inspect the original packets later. Work runs in
+the background with progress and cancellation; existing outputs are preserved.
+
+If your capture uses different internal address ranges, set **Settings → Internal
+networks** before analysing it. Common private LAN ranges are the default. The
+[walkthrough](docs/investigations.md) covers network settings, exports, and
+opening selected evidence in an existing Wireshark installation.
+
+## What you can do
+
+| Question | Tracehound helps you inspect |
+| --- | --- |
+| Which host deserves attention? | Ranked hosts and grouped findings for periodic sessions, DNS tunnelling, scans, large outbound transfers, and unusual TLS fingerprints |
+| Why was it flagged? | Timing, payload direction, responses, protocol observations, and the measurements behind each finding |
+| What did the host communicate with? | Host timelines, connections, DNS names, TLS handshakes, cleartext HTTP, and observed BitTorrent headers |
+| Which packets support the finding? | Original frame references, capture verification, packet previews, and selected-packet export |
+| What changed between captures? | Equal-window comparisons of destinations, fingerprints, services, and traffic rates |
+| Can someone else review my work? | Standalone HTML, JSON, and optional selected original packets |
+
+Use Tracehound to choose what to investigate, then open the supporting traffic in
+Wireshark for deeper protocol inspection. Large cases use a disk-backed index.
+Optional live analysis uses an already installed `dumpcap`; optional Windows
+socket ownership adds fresh local process context. See the
+[capture guide](docs/capture-evaluation.md) for setup and limits.
+
+## Findings need context
+
+A finding identifies a traffic pattern to investigate. It does not prove that a
+host is infected. Legitimate peer traffic and scheduled services can be periodic;
+encrypted content is not decrypted by the Rust analysis path.
+
+The published independent corpus includes normal traffic, controlled periodic
+connections, a malicious sweep, and a DNS tunnel. Version 0.6.1 reduced unique
+benign P2P findings from **18 to 6**, while preserving **4/4 reviewed positive
+behaviours**. Six benign findings remain in that extended case. This small corpus
+does not establish production precision or general malware recall.
+
+Read the [validation results](docs/validation-corpus.md),
+[protocol scope](docs/capture-evaluation.md#protocol-and-evidence-scope), and
+[resource measurements](docs/performance.md). Reports can contain addresses,
+domains, and source paths even when packet bytes are excluded; review them before
+sharing. [Capture and reporting policy](SECURITY.md).
+
+## Prefer the command line?
+
+The desktop app and `tracehound-eval` share the Rust engine:
+
+```sh
+tracehound-eval analyze /path/to/traffic.pcapng --output report.json
+tracehound-eval investigate /path/to/traffic.pcapng --index investigation.thcase
 ```
 
-To build the Rust CLI from source, use Rust 1.88 or newer and a native C compiler
-for bundled SQLite. The desktop application requires Rust 1.95 or newer:
+On Windows, use `tracehound-eval.exe` from the extracted bundle. See the
+[CLI and capture guide](docs/capture-evaluation.md) for options and the
+[investigation guide](docs/investigations.md) for timeline, comparison, and export
+commands.
 
-```bash
+<details>
+<summary>Build from source</summary>
+
+Use Rust 1.88 or newer for the CLI, Rust 1.95 or newer for the GUI, and a native C
+compiler for bundled SQLite. Linux GUI development dependencies are listed in the
+[contributor guide](docs/contributing.md).
+
+```sh
 cargo build --release --locked --manifest-path tools/capture-eval/Cargo.toml --bin tracehound-eval
 cargo build --release --locked --manifest-path tools/capture-eval/Cargo.toml --features gui --bin tracehound-desktop
 ```
 
-The binaries are in `tools/capture-eval/target/release` (`.exe` on Windows).
-Offline Rust analysis needs no capture driver or separate sensor executable:
+Binaries are in `tools/capture-eval/target/release` (`.exe` on Windows).
 
-```bash
-tracehound-eval analyze /path/to/your-capture.pcapng --output report.json
-```
+</details>
 
-Drop a capture into the desktop window or open its path, then start analysis.
-Create an investigation index when you want the full host timeline and packet
-references. Analysis, indexing, searches, source verification, and exports run in
-background workers with cancellation. Reports can be reopened and saved to local
-history. Labels are required only for detection evaluation.
+## Help shape the next investigation
 
-The existing Go sensor remains available for its embedded web dashboard, Linux
-AF_PACKET capture, and QUIC Initial fingerprinting. Select it explicitly through
-the legacy engine setting or `--sensor PATH`; Rust and Go coverage can differ.
+Try the tool on a capture you can inspect, and tell us where the workflow becomes
+confusing. Useful feedback includes your OS, Tracehound version, the action you
+tried, and what happened. Follow the [security policy](SECURITY.md) for sensitive
+reports and keep private captures out of public issues.
 
-## Quick start
+[Report an issue](https://github.com/bader-a-tech/tracehound/issues)
+· [Contribute](CONTRIBUTING.md)
+· [Roadmap](docs/roadmap.md)
 
-Create a case from a capture, inspect a host, and export a readable report:
+The next proposed milestone is an evidence-linked **Investigation Brief**: a
+clear summary, visual activity timeline, analyst notes, and a sharing preview.
+The [roadmap](docs/roadmap.md) separates this planned work from features available
+today. Backend and native-app development use Rust or C++.
 
-```bash
-tracehound-eval investigate /captures/office.pcapng --index office.db --home-nets 10.0.0.0/8
-tracehound-eval case office.db
-tracehound-eval timeline office.db 10.0.0.42 --limit 100
-tracehound-eval case-export office.db 10.0.0.42 office-report
-```
+## Legacy sensor reference
 
-Packet bytes are included only when you request `--include-packets`. Source
-SHA-256 and original frame metadata are checked before reading or exporting
-evidence. Existing case databases, reports, and export folders are preserved.
+The retained `tracehound` Go executable supports the older embedded dashboard,
+Linux AF_PACKET capture, and QUIC Initial fingerprints. Choose it explicitly for
+those workflows; coverage differs from the Rust engine. Its commands, API, and
+deployment details are in the [compatibility reference](docs/legacy-sensor.md).
 
-Compare the same IP address over equal elapsed windows from two indexed captures:
+<details>
+<summary>Generated compatibility sensor output and regression checks</summary>
 
-```bash
-tracehound-eval behavior-compare morning.db afternoon.db 10.0.0.42 --seconds 300
-```
+These deterministic synthetic fixtures test the compatibility engine. The native
+app opens your own captures; the independent validation corpus is documented above.
+`make readme-samples` regenerates these blocks, and CI checks them against the
+actual program output.
 
-New destinations or fingerprints are changes to investigate, not automatic malware
-verdicts. An IP address can change owners through DHCP or represent multiple
-devices through NAT. See the walkthrough for coverage limits and interpretation.
-
-### Existing sensor output
-
-The optional generated fixture remains a regression check for the legacy Go
-sensor. Everything below is the actual output of `tracehound replay testdata/demo.pcap
--min-severity high`, regenerated by `make readme-samples` and checked by CI, which fails
-if this file and the program disagree.
+### High-severity fixture output
 
 <!-- readmegen:begin replay-high -->
 
@@ -159,396 +217,7 @@ if this file and the program disagree.
 
 <!-- readmegen:end replay-high -->
 
-Every alert carries the measurements that produced it. Analysts stop trusting a tool
-they cannot argue with, so each finding has to be checkable.
-
-Two of those findings appear twice. That is deliberate: a detector restates a finding
-once its cooldown has passed *and* the evidence has materially changed, so the beacon
-seen at 20 connections is reported again at 31. Identical restatements are dropped, and
-on this capture 67 of them were.
-
----
-
-## What it detects
-
-| Rule | Detection | Signal | ATT&CK |
-|---|---|---|---|
-| `TH-0001` | C2 beaconing | Dispersion of connection intervals, plus request-size consistency | [T1071.001](https://attack.mitre.org/techniques/T1071/001/), [T1573](https://attack.mitre.org/techniques/T1573/) |
-| `TH-0002` | DNS tunnelling | Name uniqueness, subdomain length, Shannon entropy, TXT/NULL ratio | [T1071.004](https://attack.mitre.org/techniques/T1071/004/), [T1048.003](https://attack.mitre.org/techniques/T1048/003/), [T1572](https://attack.mitre.org/techniques/T1572/) |
-| `TH-0003` | Vertical port scan | Distinct ports touched on one host | [T1046](https://attack.mitre.org/techniques/T1046/) |
-| `TH-0004` | Horizontal sweep | Distinct hosts touched on one port | [T1046](https://attack.mitre.org/techniques/T1046/), [T1018](https://attack.mitre.org/techniques/T1018/) |
-| `TH-0005` | Data exfiltration | Outbound/inbound byte asymmetry on a completed flow | [T1041](https://attack.mitre.org/techniques/T1041/) |
-| `TH-0006` | New device | First traffic from a previously unseen host | none |
-| `TH-0007` | Rare TLS stack | A JA4 fingerprint used by exactly one host on a network with a shared baseline | [T1573](https://attack.mitre.org/techniques/T1573/) |
-
----
-
-## Tuning
-
-Thresholds, severities, ATT&CK mappings and allowlists live in YAML, not in the
-binary. Copy the built-in pack out, edit it, and point the sensor at your version:
-
-```bash
-tracehound rules -dump ./rules
-tracehound replay capture.pcap -rules ./rules
-```
-
-`tracehound rules` prints what is currently loaded. A rule looks like this:
-
-```yaml
-id: TH-0001
-name: Periodic command-and-control beaconing
-detector: beaconing
-enabled: true
-severity: medium
-
-techniques:
-  - id: T1071.001
-    name: "Application Layer Protocol: Web Protocols"
-    tactic: command-and-control
-
-tuning:
-  min_connections: 8
-  min_interval: 2s
-  max_interval: 6h
-  threshold: 0.75
-
-exceptions:
-  - description: NTP clients poll on a fixed interval by definition
-    dst_port: 123
-```
-
-Omit any key and the compiled-in default applies, so a tuning file only needs the lines
-you changed. Exceptions match on source, destination, port, domain suffix, or JA4
-fingerprint, and every one requires a description, since an undocumented allowlist entry
-is indistinguishable from a bug six months later.
-
-Unknown keys are rejected when the pack loads, naming the file, the rule and the field:
-
-```
-tracehound: rules: th-0002-dns-tunnel.yaml: rule TH-0002: tuning:
-  line 2: field min_querys not found in type rules.dnsTuning
-```
-
-A typo that silently kept the old threshold would leave you convinced you had tuned
-something away when you had not, so the loader refuses rather than guesses.
-
----
-
-## Persistence
-
-Findings survive a restart when you point the sensor at a database:
-
-```bash
-tracehound sniff -i eth0 -db findings.db -listen 127.0.0.1:8080
-tracehound query -db findings.db -min-severity high -since 24h
-tracehound query -db findings.db -devices
-```
-
-Note the loopback bind. The dashboard and API have no authentication, and they
-serve this network's address inventory, MAC addresses, fingerprints and a live
-feed of what has been detected. An attacker on the network being watched can use
-that feed to see their own activity being caught, in real time, and stop before
-anyone acts on it.
-
-A bare `-listen :8080` binds every interface, which is ordinary Go behaviour and
-is kept so the container deployment keeps working, but the sensor prints a
-warning when it does. To reach the dashboard from another machine, put an
-authenticating reverse proxy in front of a loopback bind. [SECURITY.md](SECURITY.md)
-sets out the trust boundary in full.
-
-The dashboard reloads stored findings on startup, so a restarted sensor opens
-showing what it already knows rather than an empty page.
-
-Two things shape the implementation. The packet loop never waits on a disk:
-alerts go to a buffered queue and a background goroutine batches them into
-transactions, and if that queue fills, alerts are dropped and counted rather
-than allowed to back up into the capture path. Losing the record of a finding is
-bad, losing the packets that would have produced the next one is worse.
-
-The driver is `modernc.org/sqlite`, a pure-Go translation of SQLite, so
-`CGO_ENABLED=0` still produces the static binary everything else depends on.
-The cgo binding is faster and would have cost the single-binary property
-outright.
-
-Flows are deliberately not stored. A busy network produces millions a day, and
-keeping them is what a flow collector is for.
-
-A sensor left running would otherwise fill its disk, so retention is enforced at
-startup and every five minutes thereafter:
-
-```bash
-tracehound sniff -i eth0 -db findings.db -db-retention 720h -db-max-alerts 500000
-tracehound query -db findings.db -vacuum        # return freed space to the filesystem
-```
-
-Both limits are worth setting. An age cutoff expresses how far back you want to
-look, but it is not a bound: during an incident a single hour can produce more
-findings than a normal month, and only the count ceiling caps that. Deleting
-rows frees pages for reuse without shrinking the file, which is the right
-default for a database still being written to, so compaction is a separate
-command rather than something that happens on a timer.
-
-The asset inventory is written on a one minute cadence rather than only at exit,
-so `query -devices` works against a sensor that is still running, and a process
-that is killed rather than stopped does not lose it.
-
-## Why JA4 is worth the effort
-
-TLS encrypts the payload, not the handshake. Which cipher suites, extensions and
-signature algorithms a client offers, and in what order, is a property of its TLS
-*stack* rather than its traffic, so it survives encryption, proxies and domain fronting.
-
-In practice a JA4 hash identifies the application. Chrome looks different from curl,
-which looks different from the Go runtime, which looks different from a Cobalt Strike
-beacon. "A host on this network started speaking TLS with a stack no other host uses" is
-a cheap statement to make and a hard one to explain away.
-
-The ClientHello parser is hand-written against the wire format instead of being handed
-to `crypto/tls`, because `crypto/tls` only parses handshakes it is willing to negotiate,
-and the handshakes most worth fingerprinting are the ones it would refuse.
-
-Two details are easy to get wrong here. The first is GREASE (RFC 8701): clients inject
-random reserved values into their cipher and extension lists specifically to break
-middleboxes that ignore them, so leaving them in gives the same client a different
-fingerprint on every connection. They are stripped from every list.
-
-The second is fragmentation. A current Chrome or Firefox hello carrying a hybrid
-post-quantum key share runs past one TCP segment, so a sensor that parses only the first
-payload packet quietly stops fingerprinting the modern clients you most want to see.
-Hellos are reassembled, and there is a test that feeds one through a byte per segment,
-because splitting a handshake into minimal segments is a long-standing way to evade
-inline inspection.
-
-### The server half
-
-JA4 says what software connected. JA4S, taken from the ServerHello, says what it
-connected to, and the pair is considerably stronger than either alone: the same
-combination seen across several victims is a command-and-control framework
-rather than one unusual host. In the demo capture the implant and its server
-show up together:
-
-```
-t12d040400_93657e4f18b9_2327112d5371  +  t120300_c030_dd32164b0f22
-```
-
-A ServerHello is a much smaller message than a ClientHello, because a server
-states decisions rather than offers: one cipher suite instead of a list, one
-ALPN instead of a preference order. That makes the fingerprint narrower, but
-also harder to vary. A server has no reason to shuffle its extension order the
-way browsers now shuffle theirs, so JA4S keeps that ordering as signal where
-JA4 has to sort it away. The chosen cipher is printed rather than hashed, since
-hashing a single value only makes it harder to read.
-
-HelloRetryRequest is excluded. It is a ServerHello on the wire but not the
-server's real answer, and fingerprinting it would give every server that ever
-asks for a different key share the same hash.
-
-QUIC contributes a JA4 but never a JA4S: the server's reply is protected with
-keys derived from its own connection ID, which a passive observer does not have.
-That is a real limit rather than an unimplemented feature.
-
-GREASE is the one place the two algorithms genuinely disagree: JA4 strips those
-reserved values and JA4S keeps them, in both the extension count and the hash.
-That is not obviously principled, but it is what the reference does, and a
-fingerprint exists to be compared.
-
-Both algorithms were checked line by line against FoxIO's reference Python
-implementation, which found three real defects: JA4S was stripping GREASE, a
-one-character ALPN was being doubled instead of left alone, and a non-ASCII ALPN
-was hex-encoded rather than reported as `99`. The last two affected JA4 as well.
-JA4 now also passes external test vectors from FoxIO's own capture. JA4S still
-has no independent capture comparison, so its conformance is verified by reading
-rather than by experiment.
-
-### QUIC
-
-Roughly a third of web traffic is HTTP/3, and to a TCP-only sensor all of it is opaque
-UDP. tracehound decrypts QUIC Initial packets and fingerprints the handshake inside them.
-
-That sounds like an attack and is not one. QUIC protects Initial packets with keys
-derived from the Destination Connection ID, which travels in the clear precisely so that
-load balancers and observers can do this. Recovering the ClientHello is a key schedule
-and an AEAD open:
-
-```
-initial_secret        = HKDF-Extract(initial_salt, destination_connection_id)
-client_initial_secret = HKDF-Expand-Label(initial_secret, "client in", "", 32)
-key, iv, hp           = HKDF-Expand-Label(client_initial_secret, "quic key" / "quic iv" / "quic hp")
-```
-
-Strip the header protection with an AES block over a ciphertext sample, open the payload
-with AES-128-GCM, pull the CRYPTO frames out, and the handshake is the same ClientHello
-the TCP path already parses.
-
-Two RFC 9001 vectors keep that honest. Appendix A.1 checks the key schedule, and
-Appendix A.2 is the whole thing: the specification's own 1200-byte protected packet goes
-in, and the ClientHello that comes out has to match the plaintext the RFC publishes,
-byte for byte. That matters more than it sounds. Every other test here is a round trip
-against this project's own encoder, which a shared misreading of the specification would
-pass; a packet produced by someone else, from the specification itself, will not.
-
-The same client over both transports produces the same fingerprint apart from JA4's
-leading character, `t` for TCP and `q` for QUIC, and there is a test asserting exactly
-that. QUIC hellos are reassembled across datagrams and in any order, because UDP
-guarantees neither and a post-quantum hello does not fit in one Initial.
-
-See [`internal/quic`](internal/quic).
-
-### What Encrypted ClientHello does to all of this
-
-ECH is the development most likely to make this approach less useful, so the sensor
-measures it rather than waiting to be surprised by it:
-
-```
-tls        151 clients, 124 servers fingerprinted
-ech        56 of those hid their destination (37.1%; server names below are the front door)
-```
-
-The distinction worth being precise about is that **ECH hides where a client is going, not
-what it is**. The fingerprint survives, because JA4 measures the shape of the hello: the
-cipher list, the extension list, the ALPN. All of that is in the outer hello, which has to
-stay readable for the connection to work at all. Offering ECH is itself part of that shape,
-so a client that uses it and one that does not are correctly different fingerprints.
-
-What does not survive is the server name. Under ECH the SNI in the outer hello is the
-provider's public name, so anything reasoning about a destination is describing the front
-door. In this tool that touches TH-0005, which names the host a transfer went to. The
-fingerprint-based detections are unaffected, which is a large part of why fingerprinting
-was worth building in the first place.
-
-One honest limit: a passive observer cannot distinguish real ECH from GREASE ECH, where a
-client sends a decoy extension to keep the code path exercised. That is deliberate in the
-design, and it means the share above is an upper bound on how many connections are really
-concealing anything.
-
----
-
-## How it works
-
-The desktop and CLI share this Rust path:
-
-```text
-PCAP / PCAPNG / dumpcap stream
-              |
-   container and packet decoder
-   bounded IP/TCP reassembly
-              |
-   shared streaming detectors ----> grouped findings + packet references
-              |                                  |
-   SQLite investigation index <------------------+
-              |
-   host timelines / baseline comparison / GUI / HTML + JSON / Wireshark
-```
-
-Packet references identify the original container, section, interface, frame,
-timestamp, and byte range. Capture hashes and original frame metadata are verified
-before packet bytes are shown or exported. Detector evidence and contextual joins
-are labelled separately. The [investigation guide](docs/investigations.md) explains
-indexing, bounds, and evidence handling.
-
-The retained Go sensor has a separate pipeline:
-
-```
-  capture ─────▶ decode ─────▶ flow table ─────▶ detectors ─────▶ alerts
-  pcap file      gopacket      bidirectional     beaconing        ATT&CK-mapped
-  AF_PACKET      zero-alloc    5-tuple, LRU      dns-tunnel       + evidence
-                 layer parser  expiry            port-scan             │
-                     │                           exfiltration          ▼
-                     └────────▶ JA4 / JA3 ──────▶ inventory       HTTP API + SSE
-                               ClientHello                        embedded dashboard
-                               reassembly
-```
-
-The Go sensor's data path runs on one goroutine. At the packet rates a single commodity core
-can decode, coordinating workers costs more than the work being split, and a
-single-threaded pipeline is far easier to reason about and to test deterministically.
-Scaling out belongs at the capture layer, one pipeline per RSS queue, rather than inside
-this loop.
-
-Detection policy is deliberately kept out of the detectors. A detector answers whether
-traffic is periodic, which is arithmetic and changes rarely. A rule answers whether you
-care about it on this network today, which changes constantly and belongs in a file
-someone can edit at 2am without a Go toolchain.
-
-### Decisions behind the code
-
-Flow expiry costs O(expired) rather than O(total). Scanning every entry on a timer would
-degrade exactly when the table is largest, which is during the scan or flood you most
-want to detect. Every flow is threaded onto an intrusive recency list instead, so
-reaping pops from the head while the head is too old.
-See [`internal/flow/table.go`](internal/flow/table.go).
-
-Beaconing scores on whichever of two dispersion measures is more favourable. Coefficient
-of variation catches drift, median absolute deviation forgives a missed check-in. Real
-beacons skip intervals, and a single doubled gap inflates a standard deviation enough to
-bury the pattern. See [`internal/detect/beacon.go`](internal/detect/beacon.go).
-
-DNS tunnelling weights name uniqueness highest of its four axes. It is the one property
-a working tunnel cannot avoid: every packet of smuggled data has to be a fresh name, or
-caching swallows it and the channel stops working.
-See [`internal/detect/dnstunnel.go`](internal/detect/dnstunnel.go).
-
-Rarity waits for a baseline. Early in a capture every host has contributed exactly one
-fingerprint, so everything looks unique, and the detector will happily indict the entire
-network. It now refuses to judge until it has seen stacks that are demonstrably shared.
-That was a real false positive, caught by replaying the demo capture and reading the
-output. See [`internal/detect/inventory.go`](internal/detect/inventory.go).
-
-The parser treats its input as hostile. A bounds-checked cursor turns every read past
-the end into a failure rather than a panic, which lets the parser read as straight-line
-code with one validity check at the end. It has a fuzz target, because a network parser
-that panics is a remote denial of service.
-See [`internal/fingerprint/clienthello.go`](internal/fingerprint/clienthello.go).
-
----
-
-## Performance
-
-The [resource benchmark](docs/performance.md) measures capture analysis, process-tree
-resident memory, cancellation cleanup, truncated-input rejection, and disk-backed
-indexing at 1, 5, and 10 GiB. Workload and sampling limits accompany results.
-
-Historical Go sensor microbenchmarks, measured on an AMD Ryzen 9 3900X with
-`go test -bench . -benchmem`:
-
-| Operation | Time | Allocations |
-|---|---:|---:|
-| Flow table update, existing flow | 68 ns | 0 |
-| Non-TLS payload rejected | 15 ns | 0 |
-| ClientHello parse + JA4 + JA3 | 1.16 µs | 16 |
-| Full pipeline, end to end | ~1,050,000 packets/sec | |
-
-The fingerprint path started at 4.1 µs and 51 allocations. `fmt.Sprintf("%04x")` was
-allocating once per cipher suite; formatting the nibbles by hand made it 3.6 times
-faster.
-
-Packet decoding uses gopacket's `DecodingLayerParser` with pre-allocated layer structs
-rather than `gopacket.NewPacket`, which allocates a fresh object per layer per packet
-and dominates the profile at line rate.
-
----
-
-## How correctness is established
-
-The Rust corpus command downloads independently published captures, verifies
-pinned byte lengths and SHA-256 hashes, and evaluates reviewed behaviour labels.
-The current default corpus covers normal DNS and web traffic, periodic and
-jittered connections, a malicious sweep, a DNS tunnel, and an unlabelled malware
-observation. [Validation results](docs/validation-corpus.md) separate per-rule
-labelled recall, unexpected findings, benign alert records, and reviewed host-hour
-exposure. Unlabelled captures do not contribute accuracy scores.
-
-Rust integration tests independently encode packet containers and wire frames.
-They exercise the real CLI, malformed inputs, packet provenance, source mutation,
-case tampering, timeline pagination, exports, comparison windows, and cancellation.
-Native release checks open the GUI and verify a rendered screenshot on each OS.
-
-Unit tests alone do not tell you much about a detector, since a threshold low enough to
-fire on anything still passes its own test. The demo capture therefore doubles as a
-detection harness. The generator declares what it planted, and the integration test
-requires that every planted behaviour comes back out attributed to the right host, and
-that none of the six benign hosts is ever accused.
+### Compatibility regression result
 
 <!-- readmegen:begin detection-harness -->
 
@@ -566,161 +235,10 @@ that none of the six benign hosts is ever accused.
 
 <!-- readmegen:end detection-harness -->
 
-The second test is the one that does the work. Any detector can be made to fire by
-lowering a threshold; staying quiet about the ordinary traffic sitting beside the attack
-is the difficult half.
-
-Where a fingerprint or a decryption has to agree with the rest of the world, the tests use
-somebody else's numbers rather than this project's. JA4 is checked against real Chrome
-hellos from FoxIO's own capture, requiring the fingerprints FoxIO's implementation
-produces, across four hellos chosen to differ from each other. QUIC Initial decryption is
-checked against the protected packets published in RFC 9001 and RFC 9369, requiring the
-plaintext those RFCs publish. Both matter for the same reason: every other test here is a
-round trip against this project's own encoder, and a round trip cannot catch a
-specification that was misread consistently.
-
-Coverage of the analysis packages: `pipeline` 90%, `fingerprint` 89%, `quic` 87%,
-`detect` 86%, `flow` 83%, `rules` 82%, `store` 81%, `api` 79%. Repository total 61%.
-
-The total is lower than any of those because of three packages that drag it down for
-reasons worth naming rather than hiding. `capture` is at 45%: the AF_PACKET path is
-Linux-only and needs `CAP_NET_RAW`, so no test can open one, and what is covered is the
-file-replay half. `model` and `pcapgen` read 0% only because coverage is measured per
-package and both are exercised entirely from other packages' tests. `cmd` is thin glue
-over code that is tested where it lives.
-
-CI also runs the race detector, a 45 second fuzz of each parser that reads untrusted
-input on every pull request (the TLS ClientHello and ServerHello parsers, QUIC Initial
-decryption, and the QUIC frame walk), cross-compilation for five platforms, and an
-end-to-end demo that fails the build if any rule stops firing.
-
----
-
-## Usage
-
-```
-tracehound replay <file.pcap>    Analyse a capture file
-tracehound sniff  -i <iface>     Capture live (Linux; needs CAP_NET_RAW)
-tracehound gen-demo <file.pcap>  Write a synthetic capture containing known attacks
-tracehound rules                 List the loaded detection rules
-tracehound query -db <file.db>   Read findings back out of a database
-```
-
-Useful flags:
-
-| Flag | Meaning |
-|---|---|
-| `-listen :8080` | Serve the live dashboard and JSON API |
-| `-speed 120` | Replay at 120 times real time so detections appear progressively |
-| `-rules ./rules` | Load a YAML rule directory instead of the built-in pack |
-| `-db findings.db` | Persist findings to SQLite so they survive a restart |
-| `-db-retention 720h` | Discard stored findings older than this |
-| `-db-max-alerts 500000` | Hard ceiling on stored findings, newest kept |
-| `-json` | Emit alerts as JSON Lines, for piping into a SIEM |
-| `-min-severity high` | Raise the reporting floor |
-| `-home-nets 10.0.0.0/8,192.168.0.0/16` | Define which addresses count as inside |
-
-Live capture needs `CAP_NET_RAW`. Grant it narrowly rather than running as root:
-
-```bash
-sudo setcap cap_net_raw,cap_net_admin=eip ./bin/tracehound
-```
-
-### JSON API
-
-| Endpoint | Returns |
-|---|---|
-| `GET /api/alerts?limit=&min_severity=` | Alerts, newest first |
-| `GET /api/devices` | Passive asset inventory with JA4 fingerprints |
-| `GET /api/flows?limit=` | Active flow table |
-| `GET /api/stats` | Throughput and detector counters |
-| `GET /api/session` | Analysis state, timestamps, failure details, counters, and rule-pack summary |
-| `GET /api/attack` | Observed ATT&CK techniques with counts |
-| `GET /api/stream` | Server-sent events, one per alert |
-
-The session endpoint distinguishes an analysis that is `ready`, `running`,
-`stopping`, `completed`, `stopped`, or `failed`. An open event stream describes
-the connection, not whether analysis is still running: a finished replay keeps
-serving its results. Session status is available for CLI runs started with
-`-listen`; the lower-level API constructor used without a session returns 404.
-
-The Go backend in `internal/session` loads the rule pack and creates a fresh
-engine, inventory, and pipeline for each analysis. Its synchronous `Run` can
-execute on a worker goroutine while a client reads `Snapshot` and requests
-`Stop`. A session runs only once, so detector history cannot leak between
-captures. The caller closes the capture source after `Run` returns. HTTP session
-status is read-only; starting and stopping through HTTP is not implemented.
-
----
-
-## Limitations
-
-Rust real-time detection uses an already installed Wireshark `dumpcap` helper on
-Windows, Linux, and macOS. Capture permissions and an appropriate capture driver
-are required by that helper. Windows uses Npcap; no packet drivers are installed
-automatically. The legacy Go sensor also supports Linux AF_PACKET directly.
-
-Windows process ownership is optional, local, and best effort. It matches fresh
-socket snapshots and process creation identities, cannot recover historical
-ownership from an imported capture, and leaves uncertain matches unattributed.
-
-The Rust offline path uses bounded TCP buffering for ClientHello/ServerHello and
-the first cleartext HTTP/1.x request per flow. HTTP/2, HTTP/3, and encrypted HTTP
-headers are not decoded. The direct Go replay/sniff path retains its earlier
-ClientHello-oriented reassembly.
-
-The legacy Go sensor's QUIC support covers client Initials for version 1 and version 2. Draft versions use their
-own salts again and are rejected rather than decrypted with the wrong keys, and
-everything after the handshake is protected by keys an observer never sees.
-
-Rust offline analysis reassembles IPv4 and IPv6 fragments within explicit memory,
-age, and fragment-set limits. Incomplete, overlapping, expired, and over-budget
-sets are discarded and counted in report enrichment. The direct Go replay/sniff
-path does not perform that preparation and retains its fragment limitations.
-
-Rust offline DNS analysis uses the full Public Suffix List embedded by the locked
-Rust dependency, including its private suffix section. Updates are deliberate
-dependency updates. The direct Go sensor still uses its smaller built-in suffix
-table, so results can differ for suffixes covered only by the full list.
-
-Alerts repeat as evidence accumulates. Identical evidence is dropped and an escalation in
-severity is reported immediately, but a finding whose numbers keep climbing will restate
-itself once per cooldown.
-
-The independent regression set is too small to establish
-production precision or broad malware recall. Thresholds remain a starting point
-for your network; review the evidence and tune the rule pack using labelled local
-traffic. Optional TLS-pair feed matches preserve their source and confidence and
-identify associations, rather than proving malware attribution.
-
-## Roadmap
-
-Backend development focuses on Rust or C++, with the GUI growing alongside
-usable backend capabilities. The default offline and live analysis paths share
-the Rust engine. No Python tooling is required.
-
-The current backend includes indexed host investigations, authenticated original
-packet references, shareable exports, equal-window behavioural comparisons,
-labelled suites, local history, bounded reassembly, full-list DNS grouping, TLS
-fingerprints, cleartext HTTP fingerprints, and opt-in source-attributed TLS-pair
-feeds. Native packages and archives are checked on their target OS.
-
-Further work includes more independently labelled traffic for rules without
-external recall coverage, Rust QUIC support, additional protocol and evasion
-coverage, more native GUI interaction checks, and publisher signing when
-credentials are available. The
-[external validation report](docs/validation-corpus.md) and
-[release process](docs/release.md) track the evidence and remaining distribution
-limits.
+</details>
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
-
-Release bundles retain dependency copyright and license notices in `licenses/`.
-Their catalog identifies dependency versions and upstream sources; third-party
-terms remain their own.
-
-The synthetic capture uses only [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737) and
-RFC 1918 documentation addresses, so it cannot be mistaken for, or replayed against, real
-infrastructure. No real network traffic is included in this repository.
+MIT. See [LICENSE](LICENSE). Release bundles retain upstream copyright and
+dependency notices in `licenses/`. Validation captures are downloaded locally;
+full PCAP/PCAPNG files are not bundled with releases.

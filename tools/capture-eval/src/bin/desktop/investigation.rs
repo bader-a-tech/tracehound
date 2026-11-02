@@ -98,6 +98,7 @@ pub struct InvestigationUi {
     error: Option<String>,
     notice: Option<String>,
     browse: Option<CasePath>,
+    reveal_setup: bool,
 }
 
 impl Default for InvestigationUi {
@@ -141,11 +142,27 @@ impl Default for InvestigationUi {
             error: None,
             notice: None,
             browse: None,
+            reveal_setup: false,
         }
     }
 }
 
 impl InvestigationUi {
+    pub fn select_capture(&mut self, capture: &str) {
+        let capture = capture.trim();
+        if capture.is_empty() {
+            return;
+        }
+        self.source = capture.into();
+        if self.destination.trim().is_empty() {
+            self.destination = PathBuf::from(capture)
+                .with_extension("thcase")
+                .to_string_lossy()
+                .into_owned();
+        }
+        self.reveal_setup = true;
+    }
+
     pub fn smoke_ready(&mut self) -> Result<bool, String> {
         if let Some(error) = &self.error {
             return Err(error.clone());
@@ -475,26 +492,24 @@ impl InvestigationUi {
     ) {
         ui.heading("Host investigations");
         ui.label("Build a searchable case from an original capture, then follow hosts, connections and the exact packets behind each finding.");
-        ui.collapsing("Build or open an investigation", |ui| {
+        let reveal_setup = std::mem::take(&mut self.reveal_setup);
+        egui::CollapsingHeader::new("Build or open an investigation")
+            .default_open(self.overview.is_none())
+            .open(reveal_setup.then_some(true))
+            .show(ui, |ui| {
             ui.add_enabled_ui(!disabled && !self.active(), |ui| {
                 self.path_row(ui, CasePath::Capture, "Original PCAP / PCAPNG");
                 if !current_capture.trim().is_empty()
                     && ui.button("Use capture from Analyse").clicked()
                 {
-                    self.source = current_capture.into();
-                    if self.destination.trim().is_empty() {
-                        self.destination = PathBuf::from(current_capture)
-                            .with_extension("thcase")
-                            .to_string_lossy()
-                            .into_owned();
-                    }
+                    self.select_capture(current_capture);
                 }
                 self.path_row(ui, CasePath::Destination, "New case file (.thcase)");
                 ui.horizontal_wrapped(|ui| {
                     if ui
                         .add_enabled(
                             !self.source.trim().is_empty() && !self.destination.trim().is_empty(),
-                            egui::Button::new("Build investigation in Rust"),
+                            egui::Button::new("Create investigation"),
                         )
                         .clicked()
                     {
@@ -507,6 +522,7 @@ impl InvestigationUi {
                         "Original packets stay unchanged. An existing case is never overwritten.",
                     );
                 });
+                ui.small("Internal networks come from Settings. Private ranges are used when no override is set.");
                 ui.separator();
                 self.path_row(ui, CasePath::Open, "Saved investigation");
                 if ui
@@ -1117,6 +1133,59 @@ mod tests {
         bytes.extend(frame);
         bytes
     }
+    #[test]
+    fn capture_selection_suggests_a_case_without_starting_work_or_replacing_user_choices() {
+        let directory = Directory::new();
+        let source = directory.0.join("original capture.pcapng");
+        let existing = source.with_extension("thcase");
+        fs::write(&existing, b"existing case must stay unchanged").unwrap();
+        let mut view = InvestigationUi::default();
+        view.select_capture(&source.to_string_lossy());
+        assert_eq!(PathBuf::from(&view.source), source);
+        assert_eq!(PathBuf::from(&view.destination), existing);
+        assert_eq!(
+            fs::read(&existing).unwrap(),
+            b"existing case must stay unchanged"
+        );
+        assert!(!view.busy());
+        assert!(view.job.is_none() && view.overview.is_none());
+
+        let chosen = directory.0.join("chosen name.thcase");
+        view.destination = chosen.to_string_lossy().into_owned();
+        let another = directory.0.join("another.pcap");
+        view.select_capture(&another.to_string_lossy());
+        assert_eq!(PathBuf::from(&view.source), another);
+        assert_eq!(PathBuf::from(&view.destination), chosen);
+        assert!(!chosen.exists());
+        assert!(!view.busy());
+        view.select_capture("   ");
+        assert_eq!(PathBuf::from(&view.source), another);
+        assert_eq!(PathBuf::from(&view.destination), chosen);
+    }
+
+    #[test]
+    fn first_investigation_view_exposes_create_action_without_opening_an_accordion() {
+        let mut view = InvestigationUi::default();
+        let context = egui::Context::default();
+        let output = context.run_ui(egui::RawInput::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                view.ui(
+                    ui,
+                    Ok(StreamOptions::default()),
+                    Duration::from_secs(10),
+                    "",
+                    false,
+                );
+            });
+        });
+        assert!(output.shapes.iter().any(|shape| matches!(
+            &shape.shape,
+            egui::epaint::Shape::Text(text) if text.galley.text() == "Create investigation"
+        )));
+        output.drop_without_applying_deltas();
+        assert!(!view.busy());
+    }
+
     #[test]
     fn real_case_background_queries_packet_verification_and_host_pages_render() {
         let directory = Directory::new();
