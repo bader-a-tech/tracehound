@@ -888,6 +888,33 @@ impl Desktop {
             Input::CaseSource => &mut self.investigation.original_override,
         }
     }
+    fn choose_path(&mut self, target: Input, path: PathBuf) {
+        let path = path.to_string_lossy().into_owned();
+        if matches!(target, Input::CaseCapture) {
+            self.investigation.select_capture(&path);
+        } else {
+            *self.input(target) = path;
+        }
+    }
+
+    fn investigate_capture(&mut self) {
+        if !self.capture.trim().is_empty() {
+            self.investigation.select_capture(&self.capture);
+            self.page = Page::Investigation;
+        }
+    }
+
+    fn dropped_file(&mut self, path: String) {
+        match self.page {
+            Page::Investigation => self.investigation.select_capture(&path),
+            Page::Suite => self.suite = path,
+            Page::Reports => self.open_path = path,
+            _ => {
+                self.capture = path;
+                self.page = Page::Capture;
+            }
+        }
+    }
     fn path_input(&mut self, ui: &mut egui::Ui, target: Input, label: &str, hint: &str) {
         let label = ui.label(label);
         ui.horizontal(|ui| {
@@ -984,7 +1011,7 @@ impl Desktop {
                 });
             });
         if let Some(path) = chosen {
-            *self.input(picker.target) = path.to_string_lossy().into_owned();
+            self.choose_path(picker.target, path);
         } else if open {
             self.picker = Some(picker);
             if let Some(path) = navigate {
@@ -1032,6 +1059,22 @@ impl Desktop {
                 severity_selector(ui, "analysis-floor", &mut self.floor, Severity::Info);
                 if ui.button("Analyse capture").clicked() {
                     self.begin(Page::Capture);
+                }
+                if ui
+                    .add_enabled(
+                        !self.capture.trim().is_empty(),
+                        egui::Button::new("Investigate this capture"),
+                    )
+                    .clicked()
+                {
+                    self.investigate_capture();
+                }
+            });
+            ui.small("Create an investigation to follow hosts, inspect original packets, and export a readable case.");
+            ui.horizontal_wrapped(|ui| {
+                ui.small("Private networks are internal by default. Configure other ranges for a public-address lab or a different network boundary.");
+                if ui.small_button("Internal network settings").clicked() {
+                    self.page = Page::Settings;
                 }
             });
         });
@@ -1820,15 +1863,7 @@ impl eframe::App for Desktop {
             });
             if files.len() == 1 {
                 let path = files[0].to_string_lossy().into_owned();
-                match self.page {
-                    Page::Investigation => self.investigation.source = path,
-                    Page::Suite => self.suite = path,
-                    Page::Reports => self.open_path = path,
-                    _ => {
-                        self.capture = path;
-                        self.page = Page::Capture;
-                    }
-                }
+                self.dropped_file(path);
             } else if files.len() > 1 {
                 self.error = Some("Drop one input file at a time. Use a suite manifest to evaluate multiple captures.".into());
             }
@@ -2323,6 +2358,38 @@ mod tests {
             std::thread::sleep(Duration::from_millis(2));
         }
         assert!(desktop.error.is_none(), "{:?}", desktop.error);
+    }
+
+    #[test]
+    fn capture_handoffs_prepare_investigations_without_automatic_jobs() {
+        let mut desktop = Desktop::default();
+        desktop.investigate_capture();
+        assert!(desktop.page == Page::Capture);
+        desktop.capture = "capture with spaces.pcapng".into();
+        desktop.investigate_capture();
+        assert!(desktop.page == Page::Investigation);
+        assert_eq!(desktop.investigation.source, "capture with spaces.pcapng");
+        assert_eq!(
+            desktop.investigation.destination,
+            "capture with spaces.thcase"
+        );
+        assert!(!desktop.active());
+
+        desktop.investigation.destination.clear();
+        desktop.choose_path(Input::CaseCapture, PathBuf::from("browsed.pcap"));
+        assert_eq!(desktop.investigation.source, "browsed.pcap");
+        assert_eq!(desktop.investigation.destination, "browsed.thcase");
+        desktop.investigation.destination = "user chosen.thcase".into();
+        desktop.dropped_file("dropped.pcapng".into());
+        assert_eq!(desktop.investigation.source, "dropped.pcapng");
+        assert_eq!(desktop.investigation.destination, "user chosen.thcase");
+        assert!(!desktop.active());
+        assert!(desktop.task.is_none() && desktop.workers.is_empty());
+
+        desktop.page = Page::Reports;
+        desktop.dropped_file("saved report.json".into());
+        assert_eq!(desktop.open_path, "saved report.json");
+        assert_eq!(desktop.investigation.source, "dropped.pcapng");
     }
 
     #[test]
